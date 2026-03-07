@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Library, Plus, Minus, Trash2, Search } from "lucide-react";
+import { Library, Plus, Minus, Trash2, Search, Filter } from "lucide-react";
 import Image from "next/image";
 
 interface Card {
@@ -31,10 +31,14 @@ export default function CollectionPage() {
   const [collection, setCollection] = useState<CollectionEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [factionFilter, setFactionFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [rarityFilter, setRarityFilter] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.push("/login");
+      router.push("/login?callbackUrl=/collection");
     }
   }, [status, router]);
 
@@ -82,9 +86,21 @@ export default function CollectionPage() {
     await fetch(`/api/collection?id=${id}`, { method: "DELETE" });
   }
 
-  const filtered = collection.filter((entry) =>
-    entry.card.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filtered = collection.filter((entry) => {
+    if (searchQuery && !entry.card.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (factionFilter && entry.card.faction !== factionFilter) return false;
+    if (typeFilter && entry.card.type !== typeFilter) return false;
+    if (rarityFilter && entry.card.rarity !== rarityFilter) return false;
+    return true;
+  });
+
+  const hasFilters = factionFilter || typeFilter || rarityFilter;
+
+  function clearFilters() {
+    setFactionFilter("");
+    setTypeFilter("");
+    setRarityFilter("");
+  }
 
   const totalCards = collection.reduce((sum, e) => sum + e.quantity, 0);
   const uniqueCards = collection.length;
@@ -113,17 +129,83 @@ export default function CollectionPage() {
         </p>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-4">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-        <input
-          type="text"
-          placeholder="Search your collection..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full rounded-lg border border-border bg-card-bg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary transition"
-        />
+      {/* Search + Filter Toggle */}
+      <div className="flex gap-2 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            type="text"
+            placeholder="Search your collection..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-border bg-card-bg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary transition"
+          />
+        </div>
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm transition ${
+            hasFilters
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border bg-card-bg text-muted hover:text-foreground"
+          }`}
+        >
+          <Filter size={16} />
+          <span className="hidden sm:inline">Filters</span>
+        </button>
       </div>
+
+      {/* Filter Panel */}
+      {showFilters && (
+        <div className="mb-4 rounded-lg border border-border bg-card-bg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Filters</span>
+            {hasFilters && (
+              <button onClick={clearFilters} className="text-xs text-primary hover:underline">
+                Clear all
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <select
+              value={factionFilter}
+              onChange={(e) => setFactionFilter(e.target.value)}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none"
+            >
+              <option value="">All Factions</option>
+              <option value="Order">Order</option>
+              <option value="Chaos">Chaos</option>
+              <option value="Calm">Calm</option>
+              <option value="Mind">Mind</option>
+              <option value="Fury">Fury</option>
+              <option value="Body">Body</option>
+            </select>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none"
+            >
+              <option value="">All Types</option>
+              <option value="Champion">Champion</option>
+              <option value="Unit">Unit</option>
+              <option value="Spell">Spell</option>
+              <option value="Battlefields">Battlefields</option>
+              <option value="Gear">Gear</option>
+            </select>
+            <select
+              value={rarityFilter}
+              onChange={(e) => setRarityFilter(e.target.value)}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none"
+            >
+              <option value="">All Rarities</option>
+              <option value="Common">Common</option>
+              <option value="Uncommon">Uncommon</option>
+              <option value="Rare">Rare</option>
+              <option value="Epic">Epic</option>
+              <option value="Showcase">Showcase</option>
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* Quick Add Button */}
       <div className="flex gap-2 mb-4">

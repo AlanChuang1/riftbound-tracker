@@ -10,7 +10,7 @@ export default function ProfilePage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
+    if (status === "unauthenticated") router.push("/login?callbackUrl=/profile");
   }, [status, router]);
 
   if (status === "loading") {
