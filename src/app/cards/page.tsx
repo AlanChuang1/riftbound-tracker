@@ -110,11 +110,10 @@ export default function CardsPage() {
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm transition ${
-            hasFilters
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm transition ${hasFilters
               ? "border-primary bg-primary/10 text-primary"
               : "border-border bg-card-bg text-muted hover:text-foreground"
-          }`}
+            }`}
         >
           <Filter size={16} />
           <span className="hidden sm:inline">Filters</span>
@@ -176,7 +175,7 @@ export default function CardsPage() {
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none"
             >
               <option value="">All Sets</option>
-              <option value="OGN">Origins</option>
+              <option value="Origins">Origins</option>
               <option value="SFD">Spiritforged</option>
             </select>
           </div>
