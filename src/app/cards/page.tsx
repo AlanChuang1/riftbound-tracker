@@ -43,6 +43,7 @@ export default function CardsPage() {
   const [faction, setFaction] = useState("");
   const [type, setType] = useState("");
   const [rarity, setRarity] = useState("");
+  const [setFilter, setSetFilter] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -56,6 +57,7 @@ export default function CardsPage() {
     if (faction) params.set("faction", faction);
     if (type) params.set("type", type);
     if (rarity) params.set("rarity", rarity);
+    if (setFilter) params.set("set", setFilter);
     params.set("page", String(page));
     params.set("limit", "24");
 
@@ -69,7 +71,7 @@ export default function CardsPage() {
       console.error("Failed to fetch cards");
     }
     setLoading(false);
-  }, [query, faction, type, rarity, page]);
+  }, [query, faction, type, rarity, setFilter, page]);
 
   useEffect(() => {
     const timer = setTimeout(fetchCards, 300);
@@ -80,10 +82,11 @@ export default function CardsPage() {
     setFaction("");
     setType("");
     setRarity("");
+    setSetFilter("");
     setPage(1);
   }
 
-  const hasFilters = faction || type || rarity;
+  const hasFilters = faction || type || rarity || setFilter;
 
   return (
     <div className="px-4 py-4 md:px-8 md:py-6 max-w-7xl mx-auto">
@@ -129,7 +132,7 @@ export default function CardsPage() {
               </button>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <select
               value={faction}
               onChange={(e) => { setFaction(e.target.value); setPage(1); }}
@@ -138,9 +141,10 @@ export default function CardsPage() {
               <option value="">All Factions</option>
               <option value="Order">Order</option>
               <option value="Chaos">Chaos</option>
-              <option value="Nature">Nature</option>
-              <option value="Shadow">Shadow</option>
-              <option value="Tech">Tech</option>
+              <option value="Calm">Calm</option>
+              <option value="Mind">Mind</option>
+              <option value="Fury">Fury</option>
+              <option value="Body">Body</option>
             </select>
             <select
               value={type}
@@ -151,8 +155,8 @@ export default function CardsPage() {
               <option value="Champion">Champion</option>
               <option value="Unit">Unit</option>
               <option value="Spell">Spell</option>
-              <option value="Landmark">Landmark</option>
-              <option value="Equipment">Equipment</option>
+              <option value="Battlefields">Battlefields</option>
+              <option value="Gear">Gear</option>
             </select>
             <select
               value={rarity}
@@ -164,7 +168,16 @@ export default function CardsPage() {
               <option value="Uncommon">Uncommon</option>
               <option value="Rare">Rare</option>
               <option value="Epic">Epic</option>
-              <option value="Legendary">Legendary</option>
+              <option value="Showcase">Showcase</option>
+            </select>
+            <select
+              value={setFilter}
+              onChange={(e) => { setSetFilter(e.target.value); setPage(1); }}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none"
+            >
+              <option value="">All Sets</option>
+              <option value="OGN">Origins</option>
+              <option value="SFD">Spiritforged</option>
             </select>
           </div>
         </div>
