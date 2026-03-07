@@ -29,6 +29,7 @@ interface IdentifiedCard {
 
 interface PendingConfirmation {
   cards: IdentifiedCard[];
+  suggestions?: IdentifiedCard[];
   suggestedNames?: string[];
 }
 
@@ -170,19 +171,20 @@ export default function ScannerPage() {
       const res = await fetch("/api/scan", { method: "POST", body: formData });
       const data = await res.json();
 
-      if (data.identified && data.cards?.length > 0) {
-        // Filter out already-seen cards
-        const newCards = data.cards.filter(
-          (c: IdentifiedCard) => !seenCardIdsRef.current.has(c.id)
-        );
-        if (newCards.length > 0) {
-          // Pause auto-scan while confirming
-          if (autoScan) setAutoScan(false);
-          setPendingConfirm({ cards: newCards });
-        }
-      } else if (data.suggestedNames?.length > 0) {
+      const hasCards = data.identified && data.cards?.length > 0;
+      const hasSuggestions = data.suggestions?.length > 0;
+      const hasSuggestedNames = data.suggestedNames?.length > 0;
+
+      if (hasCards || hasSuggestions || hasSuggestedNames) {
         if (autoScan) setAutoScan(false);
-        setPendingConfirm({ cards: [], suggestedNames: data.suggestedNames });
+        const newCards = hasCards
+          ? data.cards.filter((c: IdentifiedCard) => !seenCardIdsRef.current.has(c.id))
+          : [];
+        setPendingConfirm({
+          cards: newCards,
+          suggestions: hasSuggestions ? data.suggestions : undefined,
+          suggestedNames: hasSuggestedNames ? data.suggestedNames : undefined,
+        });
       } else if (!autoScan) {
         setError(data.message || "Could not identify any cards in the image.");
       }
@@ -355,79 +357,159 @@ export default function ScannerPage() {
         </div>
       )}
 
-      {/* Confirmation Modal */}
+      {/* Confirmation Panel */}
       {pendingConfirm && (
         <div className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
-          <p className="text-sm font-semibold">
-            {pendingConfirm.cards.length > 0
-              ? `Found ${pendingConfirm.cards.length} card${pendingConfirm.cards.length > 1 ? "s" : ""} — is this correct?`
-              : "Could not find exact match"}
-          </p>
-
+          {/* Exact matches */}
           {pendingConfirm.cards.length > 0 && (
-            <div className="space-y-1.5">
-              {pendingConfirm.cards.map((card) => (
-                <div
-                  key={card.id}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-3"
+            <>
+              <p className="text-sm font-semibold">
+                Found {pendingConfirm.cards.length} card{pendingConfirm.cards.length > 1 ? "s" : ""}
+              </p>
+              <div className="space-y-1.5">
+                {pendingConfirm.cards.map((card) => (
+                  <div
+                    key={card.id}
+                    className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-3"
+                  >
+                    <div className="relative h-12 w-9 flex-shrink-0 rounded overflow-hidden bg-background">
+                      {card.thumbnailUrl || card.artUrl ? (
+                        <Image
+                          src={card.thumbnailUrl || card.artUrl!}
+                          alt={card.name}
+                          fill
+                          className="object-cover"
+                          sizes="36px"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-primary/10" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{card.name}</p>
+                      <p className="text-[11px] text-muted">
+                        {card.type} &middot; {card.rarity}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => confirmAndAddCards(pendingConfirm.cards)}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
                 >
-                  <div className="relative h-12 w-9 flex-shrink-0 rounded overflow-hidden bg-background">
-                    {card.thumbnailUrl || card.artUrl ? (
-                      <Image
-                        src={card.thumbnailUrl || card.artUrl!}
-                        alt={card.name}
-                        fill
-                        className="object-cover"
-                        sizes="36px"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-primary/10" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{card.name}</p>
-                    <p className="text-[11px] text-muted">
-                      {card.type} &middot; {card.rarity}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  <Check size={14} />
+                  Add to Collection
+                </button>
+                <button
+                  onClick={() => {
+                    setPendingConfirm(null);
+                    setShowManualSearch(true);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card-bg py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
+                >
+                  <Search size={14} />
+                  Manual Entry
+                </button>
+              </div>
+            </>
           )}
 
-          {pendingConfirm.suggestedNames && pendingConfirm.suggestedNames.length > 0 && (
-            <p className="text-xs text-muted">
-              Best guess: {pendingConfirm.suggestedNames.join(", ")}
-            </p>
+          {/* Fuzzy suggestions — when no exact match */}
+          {pendingConfirm.cards.length === 0 && pendingConfirm.suggestions && pendingConfirm.suggestions.length > 0 && (
+            <>
+              <p className="text-sm font-semibold">
+                Best guesses{pendingConfirm.suggestedNames ? ` for "${pendingConfirm.suggestedNames.join(", ")}"` : ""}
+              </p>
+              <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                {pendingConfirm.suggestions.map((card) => (
+                  <div
+                    key={card.id}
+                    className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-3"
+                  >
+                    <div className="relative h-12 w-9 flex-shrink-0 rounded overflow-hidden bg-background">
+                      {card.thumbnailUrl || card.artUrl ? (
+                        <Image
+                          src={card.thumbnailUrl || card.artUrl!}
+                          alt={card.name}
+                          fill
+                          className="object-cover"
+                          sizes="36px"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-primary/10" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{card.name}</p>
+                      <p className="text-[11px] text-muted">
+                        {card.type} &middot; {card.rarity}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => confirmAndAddCards([card])}
+                      className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover transition flex-shrink-0"
+                    >
+                      <Plus size={12} />
+                      Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setPendingConfirm(null);
+                    setShowManualSearch(true);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card-bg py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
+                >
+                  <Search size={14} />
+                  Manual Entry
+                </button>
+                <button
+                  onClick={() => setPendingConfirm(null)}
+                  className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </>
           )}
 
-          <div className="flex gap-2">
-            {pendingConfirm.cards.length > 0 && (
-              <button
-                onClick={() => confirmAndAddCards(pendingConfirm.cards)}
-                className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
-              >
-                <Check size={14} />
-                Yes, Add
-              </button>
-            )}
-            <button
-              onClick={() => {
-                setPendingConfirm(null);
-                setShowManualSearch(true);
-              }}
-              className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card-bg py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
-            >
-              <Search size={14} />
-              Search Manually
-            </button>
-            <button
-              onClick={() => setPendingConfirm(null)}
-              className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
-            >
-              <X size={14} />
-            </button>
-          </div>
+          {/* No matches and no suggestions */}
+          {pendingConfirm.cards.length === 0 && (!pendingConfirm.suggestions || pendingConfirm.suggestions.length === 0) && (
+            <>
+              <p className="text-sm font-semibold">Could not identify card</p>
+              {pendingConfirm.suggestedNames && (
+                <p className="text-xs text-muted">
+                  Best guess: {pendingConfirm.suggestedNames.join(", ")}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setPendingConfirm(null);
+                    setShowManualSearch(true);
+                    if (pendingConfirm.suggestedNames?.[0]) {
+                      setManualQuery(pendingConfirm.suggestedNames[0]);
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
+                >
+                  <Search size={14} />
+                  Manual Entry
+                </button>
+                <button
+                  onClick={() => setPendingConfirm(null)}
+                  className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
