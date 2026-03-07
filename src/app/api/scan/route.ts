@@ -66,21 +66,53 @@ Only include cards you are confident about.`,
     .filter(Boolean)
     .map((c) => c!.id);
 
-  if (matchedCards.length === 0) {
+  // For unmatched names, try fuzzy matching
+  const unmatchedNames = identifiedNames.filter(
+    (name) => !allCards.find((c) => c.name.toLowerCase() === name.toLowerCase())
+  );
+
+  let suggestions: typeof fullCards = [];
+  if (unmatchedNames.length > 0) {
+    // Find cards whose names contain parts of the guessed name
+    const fuzzyIds = new Set<string>();
+    for (const name of unmatchedNames) {
+      const words = name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+      for (const card of allCards) {
+        const cardLower = card.name.toLowerCase();
+        if (
+          cardLower.includes(name.toLowerCase()) ||
+          name.toLowerCase().includes(cardLower) ||
+          words.some((w) => cardLower.includes(w))
+        ) {
+          fuzzyIds.add(card.id);
+        }
+      }
+    }
+    if (fuzzyIds.size > 0) {
+      suggestions = await prisma.card.findMany({
+        where: { id: { in: [...fuzzyIds] } },
+        take: 10,
+      });
+    }
+  }
+
+  if (matchedCards.length === 0 && suggestions.length === 0) {
     return NextResponse.json({
       identified: false,
       cards: [],
       suggestedNames: identifiedNames,
-      message: "Card names identified but no exact matches found in database",
+      message: "Card names identified but no matches found in database",
     });
   }
 
-  const fullCards = await prisma.card.findMany({
-    where: { id: { in: matchedCards } },
-  });
+  const fullCards = matchedCards.length > 0
+    ? await prisma.card.findMany({ where: { id: { in: matchedCards } } })
+    : [];
 
   return NextResponse.json({
-    identified: true,
+    identified: matchedCards.length > 0,
     cards: fullCards,
+    suggestions: suggestions.length > 0 ? suggestions : undefined,
+    suggestedNames: unmatchedNames.length > 0 ? unmatchedNames : undefined,
   });
 }
