@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -12,6 +12,8 @@ import {
   ScanLine,
   Pause,
   Play,
+  Search,
+  Plus,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -23,6 +25,11 @@ interface IdentifiedCard {
   faction?: string;
   artUrl?: string;
   thumbnailUrl?: string;
+}
+
+interface PendingConfirmation {
+  cards: IdentifiedCard[];
+  suggestedNames?: string[];
 }
 
 export default function ScannerPage() {
@@ -40,10 +47,18 @@ export default function ScannerPage() {
   const [detectedCards, setDetectedCards] = useState<IdentifiedCard[]>([]);
   const [addedCardIds, setAddedCardIds] = useState<Set<string>>(new Set());
 
+  // Confirmation state
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirmation | null>(null);
+
+  // Manual search state
+  const [showManualSearch, setShowManualSearch] = useState(false);
+  const [manualQuery, setManualQuery] = useState("");
+  const [manualResults, setManualResults] = useState<IdentifiedCard[]>([]);
+  const [searchingManual, setSearchingManual] = useState(false);
+
   const seenCardIdsRef = useRef<Set<string>>(new Set());
   const autoScanRef = useRef(false);
   const scanningRef = useRef(false);
-  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     autoScanRef.current = autoScan;
@@ -52,14 +67,17 @@ export default function ScannerPage() {
     scanningRef.current = scanning;
   }, [scanning]);
 
-  // Callback ref: attach stream as soon as the video element mounts
-  const videoCallbackRef = useCallback((node: HTMLVideoElement | null) => {
-    videoRef.current = node;
-    if (node && streamRef.current) {
-      node.srcObject = streamRef.current;
-      node.play().catch(() => {});
-    }
-  }, [cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Auto-scan loop
+  useEffect(() => {
+    if (!autoScan || !cameraActive) return;
+    scanFrame();
+    const interval = setInterval(() => {
+      if (autoScanRef.current && !scanningRef.current) {
+        scanFrame();
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [autoScan, cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status === "unauthenticated") {
     router.push("/login?callbackUrl=/scanner");
@@ -75,7 +93,10 @@ export default function ScannerPage() {
           height: { ideal: 960 },
         },
       });
-      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
       setCameraActive(true);
       setError("");
     } catch {
@@ -84,11 +105,9 @@ export default function ScannerPage() {
   }
 
   function stopCamera() {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
+    if (videoRef.current?.srcObject) {
+      const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+      tracks.forEach((t) => t.stop());
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
@@ -114,11 +133,9 @@ export default function ScannerPage() {
     return new File([u8arr], "capture.jpg", { type: mime });
   }
 
-  async function addCardsToCollection(cards: IdentifiedCard[]) {
-    const newCards = cards.filter((c) => !seenCardIdsRef.current.has(c.id));
-    if (newCards.length === 0) return;
-
-    for (const card of newCards) {
+  async function confirmAndAddCards(cards: IdentifiedCard[]) {
+    for (const card of cards) {
+      if (seenCardIdsRef.current.has(card.id)) continue;
       seenCardIdsRef.current.add(card.id);
       try {
         await fetch("/api/collection", {
@@ -128,20 +145,24 @@ export default function ScannerPage() {
         });
         setAddedCardIds((prev) => new Set(prev).add(card.id));
       } catch {
-        // silently fail on add
+        // silently fail
       }
     }
     setDetectedCards((prev) => [
-      ...newCards.filter((c) => !prev.some((p) => p.id === c.id)),
+      ...cards.filter((c) => !prev.some((p) => p.id === c.id)),
       ...prev,
     ]);
+    setPendingConfirm(null);
   }
 
   async function scanFrame() {
     if (scanningRef.current) return;
     const file = captureFrame();
     if (!file) return;
+    await doScan(file);
+  }
 
+  async function doScan(file: File) {
     setScanning(true);
     try {
       const formData = new FormData();
@@ -150,48 +171,55 @@ export default function ScannerPage() {
       const data = await res.json();
 
       if (data.identified && data.cards?.length > 0) {
-        await addCardsToCollection(data.cards);
+        // Filter out already-seen cards
+        const newCards = data.cards.filter(
+          (c: IdentifiedCard) => !seenCardIdsRef.current.has(c.id)
+        );
+        if (newCards.length > 0) {
+          // Pause auto-scan while confirming
+          if (autoScan) setAutoScan(false);
+          setPendingConfirm({ cards: newCards });
+        }
+      } else if (data.suggestedNames?.length > 0) {
+        if (autoScan) setAutoScan(false);
+        setPendingConfirm({ cards: [], suggestedNames: data.suggestedNames });
+      } else if (!autoScan) {
+        setError(data.message || "Could not identify any cards in the image.");
       }
     } catch {
-      // will retry next interval
+      if (!autoScan) setError("Scan failed. Please try again.");
     }
     setScanning(false);
   }
 
-  // Auto-scan loop
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => {
-    if (!autoScan || !cameraActive) return;
-    scanFrame();
-    const interval = setInterval(() => {
-      if (autoScanRef.current && !scanningRef.current) {
-        scanFrame();
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [autoScan, cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
-
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setScanning(true);
     setError("");
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      const res = await fetch("/api/scan", { method: "POST", body: formData });
-      const data = await res.json();
+    await doScan(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
-      if (data.identified && data.cards?.length > 0) {
-        await addCardsToCollection(data.cards);
-      } else {
-        setError(data.message || "Could not identify any cards in the image.");
+  async function searchCards(query: string) {
+    if (!query.trim()) return;
+    setSearchingManual(true);
+    try {
+      const res = await fetch(`/api/cards?q=${encodeURIComponent(query)}&limit=10`);
+      if (res.ok) {
+        const data = await res.json();
+        setManualResults(data.cards || []);
       }
     } catch {
-      setError("Scan failed. Please try again.");
+      // ignore
     }
-    setScanning(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    setSearchingManual(false);
+  }
+
+  async function addManualCard(card: IdentifiedCard) {
+    await confirmAndAddCards([card]);
+    setShowManualSearch(false);
+    setManualQuery("");
+    setManualResults([]);
   }
 
   function clearSession() {
@@ -199,6 +227,7 @@ export default function ScannerPage() {
     setAddedCardIds(new Set());
     seenCardIdsRef.current = new Set();
     setError("");
+    setPendingConfirm(null);
   }
 
   return (
@@ -218,6 +247,16 @@ export default function ScannerPage() {
           </button>
         </div>
       )}
+
+      {/* Hidden video element — always in DOM so ref is stable */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={cameraActive ? "hidden" : "hidden"}
+      />
+      <canvas ref={canvasRef} className="hidden" />
 
       {/* Camera / Upload buttons */}
       {!cameraActive && (
@@ -253,17 +292,11 @@ export default function ScannerPage() {
         </div>
       )}
 
-      {/* Live Camera View */}
+      {/* Live Camera View — mirrors the hidden video */}
       {cameraActive && (
         <div className="space-y-3 mb-4">
           <div className="relative rounded-xl overflow-hidden bg-black aspect-[3/4]">
-            <video
-              ref={videoCallbackRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
+            <CameraPreview videoRef={videoRef} />
             <div className="absolute inset-0 pointer-events-none">
               <div className="absolute inset-4 border-2 border-white/20 rounded-lg" />
               {scanning && (
@@ -319,7 +352,151 @@ export default function ScannerPage() {
               {scanning ? "Scanning..." : "Scan Now"}
             </button>
           )}
-          <canvas ref={canvasRef} className="hidden" />
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {pendingConfirm && (
+        <div className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+          <p className="text-sm font-semibold">
+            {pendingConfirm.cards.length > 0
+              ? `Found ${pendingConfirm.cards.length} card${pendingConfirm.cards.length > 1 ? "s" : ""} — is this correct?`
+              : "Could not find exact match"}
+          </p>
+
+          {pendingConfirm.cards.length > 0 && (
+            <div className="space-y-1.5">
+              {pendingConfirm.cards.map((card) => (
+                <div
+                  key={card.id}
+                  className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-3"
+                >
+                  <div className="relative h-12 w-9 flex-shrink-0 rounded overflow-hidden bg-background">
+                    {card.thumbnailUrl || card.artUrl ? (
+                      <Image
+                        src={card.thumbnailUrl || card.artUrl!}
+                        alt={card.name}
+                        fill
+                        className="object-cover"
+                        sizes="36px"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-primary/10" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{card.name}</p>
+                    <p className="text-[11px] text-muted">
+                      {card.type} &middot; {card.rarity}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pendingConfirm.suggestedNames && pendingConfirm.suggestedNames.length > 0 && (
+            <p className="text-xs text-muted">
+              Best guess: {pendingConfirm.suggestedNames.join(", ")}
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            {pendingConfirm.cards.length > 0 && (
+              <button
+                onClick={() => confirmAndAddCards(pendingConfirm.cards)}
+                className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
+              >
+                <Check size={14} />
+                Yes, Add
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setPendingConfirm(null);
+                setShowManualSearch(true);
+              }}
+              className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card-bg py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
+            >
+              <Search size={14} />
+              Search Manually
+            </button>
+            <button
+              onClick={() => setPendingConfirm(null)}
+              className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Search */}
+      {showManualSearch && (
+        <div className="mb-4 rounded-xl border border-border bg-card-bg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Search for a card</p>
+            <button
+              onClick={() => {
+                setShowManualSearch(false);
+                setManualQuery("");
+                setManualResults([]);
+              }}
+              className="p-1 text-muted hover:text-foreground"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Type card name..."
+              value={manualQuery}
+              onChange={(e) => setManualQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && searchCards(manualQuery)}
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary transition"
+              autoFocus
+            />
+            <button
+              onClick={() => searchCards(manualQuery)}
+              disabled={searchingManual}
+              className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50 transition"
+            >
+              {searchingManual ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            </button>
+          </div>
+          {manualResults.length > 0 && (
+            <div className="space-y-1.5 max-h-60 overflow-y-auto">
+              {manualResults.map((card) => (
+                <button
+                  key={card.id}
+                  onClick={() => addManualCard(card)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-border bg-background p-3 hover:border-primary/30 transition text-left"
+                >
+                  <div className="relative h-12 w-9 flex-shrink-0 rounded overflow-hidden bg-background">
+                    {card.thumbnailUrl || card.artUrl ? (
+                      <Image
+                        src={card.thumbnailUrl || card.artUrl!}
+                        alt={card.name}
+                        fill
+                        className="object-cover"
+                        sizes="36px"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-primary/10" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{card.name}</p>
+                    <p className="text-[11px] text-muted">
+                      {card.type} &middot; {card.rarity}
+                    </p>
+                  </div>
+                  <Plus size={16} className="text-primary flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -375,4 +552,32 @@ export default function ScannerPage() {
       )}
     </div>
   );
+}
+
+// Renders the camera stream onto a visible canvas, mirroring the hidden video
+function CameraPreview({
+  videoRef,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+}) {
+  const previewRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    let animationId: number;
+    function draw() {
+      const video = videoRef.current;
+      const canvas = previewRef.current;
+      if (video && canvas && video.readyState >= 2) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.drawImage(video, 0, 0);
+      }
+      animationId = requestAnimationFrame(draw);
+    }
+    draw();
+    return () => cancelAnimationFrame(animationId);
+  }, [videoRef]);
+
+  return <canvas ref={previewRef} className="w-full h-full object-cover" />;
 }
