@@ -43,6 +43,7 @@ export default function ScannerPage() {
   const seenCardIdsRef = useRef<Set<string>>(new Set());
   const autoScanRef = useRef(false);
   const scanningRef = useRef(false);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     autoScanRef.current = autoScan;
@@ -50,6 +51,14 @@ export default function ScannerPage() {
   useEffect(() => {
     scanningRef.current = scanning;
   }, [scanning]);
+
+  // Attach stream to video element after it renders
+  useEffect(() => {
+    if (cameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [cameraActive]);
 
   if (status === "unauthenticated") {
     router.push("/login?callbackUrl=/scanner");
@@ -65,20 +74,20 @@ export default function ScannerPage() {
           height: { ideal: 960 },
         },
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCameraActive(true);
-        setError("");
-      }
+      streamRef.current = stream;
+      setCameraActive(true);
+      setError("");
     } catch {
       setError("Could not access camera. Please use file upload instead.");
     }
   }
 
   function stopCamera() {
-    if (videoRef.current?.srcObject) {
-      const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
-      tracks.forEach((t) => t.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
@@ -251,6 +260,7 @@ export default function ScannerPage() {
               ref={videoRef}
               autoPlay
               playsInline
+              muted
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 pointer-events-none">
