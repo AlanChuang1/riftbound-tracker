@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Riftbound Tracker
+
+A mobile/desktop PWA for tracking your Riftbound (League of Legends TCG) card collection, building decks, and scanning physical cards.
+
+**Live:** [riftbound-tracker-five.vercel.app](https://riftbound-tracker-five.vercel.app)
+
+## Features
+
+- **Card Browser** — Search and filter all 582+ Riftbound cards by name, faction, type, and rarity
+- **Collection Manager** — Track which cards you own with quantity controls
+- **Card Scanner** — Use your device camera to scan physical cards and add them to your collection via AI image recognition
+- **Deck Builder** — Build and manage decks with a card search interface
+- **AI Deck Advisor** — Get AI-powered deck improvement suggestions from your collection or general advice
+- **PWA** — Install as an app on mobile or desktop
+
+## Tech Stack
+
+- **Framework:** Next.js 16 (App Router, Turbopack)
+- **Language:** TypeScript
+- **Database:** PostgreSQL (Neon) + Prisma 7
+- **Auth:** NextAuth v4 (email/password)
+- **AI:** Google Gemini (gemini-2.5-flash) for card scanning and deck advice
+- **Card Data:** [Riftcodex API](https://api.riftcodex.com)
+- **Styling:** Tailwind CSS v4
+- **Deployment:** Vercel
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js >= 20
+- Docker (for local PostgreSQL) or a Neon account
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Clone the repo and install dependencies:
+   ```bash
+   git clone https://github.com/AlanChuang1/riftbound-tracker.git
+   cd riftbound-tracker
+   npm install
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. Create a `.env` file (see `.env.example` for reference):
+   ```
+   DATABASE_URL=postgresql://...
+   DIRECT_URL=postgresql://...
+   GEMINI_API_KEY=your_key
+   NEXTAUTH_SECRET=your_secret
+   NEXTAUTH_URL=http://localhost:3000
+   ```
 
-## Learn More
+3. Start the local database (or use Neon):
+   ```bash
+   docker compose up -d
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+4. Run migrations and seed the card catalog:
+   ```bash
+   npm run db:migrate
+   npm run seed
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+5. Start the dev server:
+   ```bash
+   npm run dev
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   Open [http://localhost:3000](http://localhost:3000).
 
-## Deploy on Vercel
+## Scripts
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run seed` | Seed card data from Riftcodex API |
+| `npm run db:migrate` | Run Prisma migrations |
+| `npm run db:generate` | Regenerate Prisma client |
