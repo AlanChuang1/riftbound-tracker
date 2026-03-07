@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -52,13 +52,14 @@ export default function ScannerPage() {
     scanningRef.current = scanning;
   }, [scanning]);
 
-  // Attach stream to video element after it renders
-  useEffect(() => {
-    if (cameraActive && videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(() => {});
+  // Callback ref: attach stream as soon as the video element mounts
+  const videoCallbackRef = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    if (node && streamRef.current) {
+      node.srcObject = streamRef.current;
+      node.play().catch(() => {});
     }
-  }, [cameraActive]);
+  }, [cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status === "unauthenticated") {
     router.push("/login?callbackUrl=/scanner");
@@ -257,7 +258,7 @@ export default function ScannerPage() {
         <div className="space-y-3 mb-4">
           <div className="relative rounded-xl overflow-hidden bg-black aspect-[3/4]">
             <video
-              ref={videoRef}
+              ref={videoCallbackRef}
               autoPlay
               playsInline
               muted
