@@ -11,5 +11,18 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://riftbound:riftbound_dev@db:5432/riftbound_tracker
+    depends_on:
+      - db
+    restart: always
+
 volumes:
   pgdata:
