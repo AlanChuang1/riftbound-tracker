@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String           @id @default(cuid())
+  email          String           @unique
+  name           String
+  passwordHash   String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  collectionCards CollectionCard[]
+  decks          Deck[]
+}
+
+model Card {
+  id          String   @id @default(cuid())
+  riotId      String?  @unique
+  name        String
+  description String?
+  flavorText  String?
+  faction     String?
+  type        String   // Champion, Unit, Spell, Landmark, etc.
+  rarity      String   // Common, Uncommon, Rare, Legendary, etc.
+  cost        Int?
+  power       Int?
+  might       Int?
+  energy      Int?
+  set         String?
+  artUrl      String?
+  thumbnailUrl String?
+  artist      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  collectionCards CollectionCard[]
+  deckCards       DeckCard[]
+
+  @@index([name])
+  @@index([faction])
+  @@index([type])
+  @@index([rarity])
+}
+
+model CollectionCard {
+  id        String   @id @default(cuid())
+  userId    String
+  cardId    String
+  quantity  Int      @default(1)
+  variant   String   @default("Base") // Base, Foil, Promo, etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cardId, variant])
+}
+
+model Deck {
+  id          String     @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  champion    String?    // Primary champion for the deck
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards DeckCard[]
+}
+
+model DeckCard {
+  id       String @id @default(cuid())
+  deckId   String
+  cardId   String
+  quantity Int    @default(1)
+
+  deck Deck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([deckId, cardId])
+}
