@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:developer.riotgames.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:piltoverarchive.com)",
+      "Bash(docker compose up -d)",
+      "Bash(npx prisma migrate dev --name init)",
+      "Bash(npm install dotenv @google/generative-ai)",
+      "Bash(nvm list)",
+      "Bash(where node)",
+      "WebFetch(domain:riftcodex.com)",
+      "WebFetch(domain:api.riftcodex.com)",
+      "Bash(npm install @ducanh2912/next-pwa)"
+    ]
+  }
+}
