@@ -13,6 +13,10 @@ import {
   Save,
   Loader2,
   X,
+  Download,
+  Copy,
+  Check,
+  AlertCircle,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -64,8 +68,22 @@ export default function DeckEditorPage() {
   const [analysis, setAnalysis] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
 
+  // Export state
+  const [showExport, setShowExport] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Missing cards state
+  const [showMissing, setShowMissing] = useState(false);
+  const [missingData, setMissingData] = useState<{
+    missing: { card: Card; needed: number; owned: number }[];
+    totalMissing: number;
+    totalDeckCards: number;
+    totalOwned: number;
+  } | null>(null);
+  const [loadingMissing, setLoadingMissing] = useState(false);
+
   useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
+    if (status === "unauthenticated") router.push(`/login?callbackUrl=/decks/${deckId}`);
   }, [status, router]);
 
   useEffect(() => {
@@ -182,6 +200,32 @@ export default function DeckEditorPage() {
     setAnalyzing(false);
   }
 
+  function getDeckExportText() {
+    if (!deck) return "";
+    const lines = deck.cards
+      .sort((a, b) => a.card.name.localeCompare(b.card.name))
+      .map((dc) => `${dc.quantity}x ${dc.card.name}`);
+    return `# ${deck.name}\n${lines.join("\n")}`;
+  }
+
+  async function copyDeckList() {
+    await navigator.clipboard.writeText(getDeckExportText());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function fetchMissing() {
+    setShowMissing(true);
+    setLoadingMissing(true);
+    try {
+      const res = await fetch(`/api/decks/${deckId}/missing`);
+      if (res.ok) setMissingData(await res.json());
+    } catch {
+      // ignore
+    }
+    setLoadingMissing(false);
+  }
+
   const totalCards = deck?.cards.reduce((sum, dc) => sum + dc.quantity, 0) || 0;
 
   if (status === "loading" || loading) {
@@ -215,6 +259,20 @@ export default function DeckEditorPage() {
           <h1 className="text-xl font-bold truncate">{deck.name}</h1>
           <p className="text-sm text-muted">{totalCards} cards</p>
         </div>
+        <button
+          onClick={fetchMissing}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-muted font-medium hover:text-foreground hover:bg-foreground/5 transition"
+        >
+          <AlertCircle size={14} />
+          <span className="hidden sm:inline">Missing</span>
+        </button>
+        <button
+          onClick={() => setShowExport(true)}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-muted font-medium hover:text-foreground hover:bg-foreground/5 transition"
+        >
+          <Download size={14} />
+          <span className="hidden sm:inline">Export</span>
+        </button>
         <button
           onClick={() => setShowAdvisor(true)}
           className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary font-medium hover:bg-primary/20 transition"
@@ -376,6 +434,130 @@ export default function DeckEditorPage() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Missing Cards Modal */}
+      {showMissing && (
+        <div
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowMissing(false)}
+        >
+          <div
+            className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-t-2xl md:rounded-2xl bg-card-bg border border-border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="font-bold">Missing Cards</h2>
+              <button onClick={() => setShowMissing(false)} className="p-1 text-muted hover:text-foreground">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {loadingMissing ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 size={20} className="animate-spin text-muted" />
+                </div>
+              ) : missingData ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg bg-background p-3 text-center">
+                      <p className="text-2xl font-bold text-success">{missingData.totalOwned}</p>
+                      <p className="text-xs text-muted">Cards owned</p>
+                    </div>
+                    <div className="rounded-lg bg-background p-3 text-center">
+                      <p className="text-2xl font-bold text-danger">{missingData.totalMissing}</p>
+                      <p className="text-xs text-muted">Cards missing</p>
+                    </div>
+                  </div>
+                  <div className="w-full bg-background rounded-full h-2">
+                    <div
+                      className="bg-success h-2 rounded-full transition-all"
+                      style={{ width: `${missingData.totalDeckCards > 0 ? (missingData.totalOwned / missingData.totalDeckCards) * 100 : 0}%` }}
+                    />
+                  </div>
+                  {missingData.missing.length === 0 ? (
+                    <div className="flex flex-col items-center py-6 text-center">
+                      <Check size={32} className="text-success mb-2" />
+                      <p className="text-sm font-semibold">You have all the cards!</p>
+                      <p className="text-xs text-muted mt-1">This deck is complete.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted font-medium">Need to acquire:</p>
+                      {missingData.missing.map((m) => (
+                        <div
+                          key={m.card.id}
+                          className="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5"
+                        >
+                          <div className="relative h-10 w-7 flex-shrink-0 rounded overflow-hidden bg-background">
+                            {m.card.thumbnailUrl || m.card.artUrl ? (
+                              <Image
+                                src={m.card.thumbnailUrl || m.card.artUrl!}
+                                alt={m.card.name}
+                                fill
+                                className="object-cover"
+                                sizes="28px"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-primary/10" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{m.card.name}</p>
+                            <p className="text-[11px] text-muted">{m.card.type} &middot; {m.card.rarity}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-semibold text-danger">
+                              {m.needed - m.owned} needed
+                            </p>
+                            <p className="text-[11px] text-muted">
+                              {m.owned}/{m.needed} owned
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted text-center py-8">Failed to load data</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Modal */}
+      {showExport && (
+        <div
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowExport(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-t-2xl md:rounded-2xl bg-card-bg border border-border p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold">Export Deck</h2>
+              <button onClick={() => setShowExport(false)} className="p-1 text-muted hover:text-foreground">
+                <X size={18} />
+              </button>
+            </div>
+            <textarea
+              readOnly
+              value={getDeckExportText()}
+              rows={Math.min(deck.cards.length + 2, 15)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-mono outline-none resize-none"
+            />
+            <button
+              onClick={copyDeckList}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied!" : "Copy to Clipboard"}
+            </button>
           </div>
         </div>
       )}

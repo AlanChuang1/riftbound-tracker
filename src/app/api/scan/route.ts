@@ -26,42 +26,61 @@ export async function POST(req: NextRequest) {
       inlineData: { mimeType, data: base64 },
     },
     {
-      text: `This is a photo of a Riftbound (League of Legends TCG) trading card. Identify the card name from the image.
+      text: `This is a photo that may contain one or more Riftbound (League of Legends TCG) trading cards. Identify ALL card names visible in the image.
 
 Here is the list of all known cards:
 ${cardListStr}
 
-Respond with ONLY the exact card name as it appears in the list above. If you cannot identify the card or it's not in the list, respond with "UNKNOWN".`,
+Respond with a JSON array of the exact card names as they appear in the list above. For example: ["Card Name 1", "Card Name 2"]
+If you cannot identify any cards, respond with: []
+Only include cards you are confident about.`,
     },
   ]);
 
-  const identifiedName = result.response.text().trim();
+  const responseText = result.response.text().trim();
 
-  if (identifiedName === "UNKNOWN") {
-    return NextResponse.json(
-      { identified: false, message: "Could not identify the card" },
-      { status: 200 }
-    );
+  // Parse the JSON array from the response
+  let identifiedNames: string[] = [];
+  try {
+    const cleaned = responseText.replace(/```json\n?|\n?```/g, "").trim();
+    identifiedNames = JSON.parse(cleaned);
+    if (!Array.isArray(identifiedNames)) identifiedNames = [];
+  } catch {
+    // Fallback: try single card name
+    if (responseText && responseText !== "UNKNOWN" && responseText !== "[]") {
+      identifiedNames = [responseText.replace(/[[\]"]/g, "").trim()];
+    }
   }
 
-  const matchedCard = allCards.find(
-    (c) => c.name.toLowerCase() === identifiedName.toLowerCase()
-  );
-
-  if (!matchedCard) {
-    return NextResponse.json(
-      {
-        identified: false,
-        suggestedName: identifiedName,
-        message: "Card name identified but no exact match found in database",
-      },
-      { status: 200 }
-    );
+  if (identifiedNames.length === 0) {
+    return NextResponse.json({
+      identified: false,
+      cards: [],
+      message: "Could not identify any cards",
+    });
   }
 
-  const fullCard = await prisma.card.findUnique({
-    where: { id: matchedCard.id },
+  // Match names to database cards
+  const matchedCards = identifiedNames
+    .map((name) => allCards.find((c) => c.name.toLowerCase() === name.toLowerCase()))
+    .filter(Boolean)
+    .map((c) => c!.id);
+
+  if (matchedCards.length === 0) {
+    return NextResponse.json({
+      identified: false,
+      cards: [],
+      suggestedNames: identifiedNames,
+      message: "Card names identified but no exact matches found in database",
+    });
+  }
+
+  const fullCards = await prisma.card.findMany({
+    where: { id: { in: matchedCards } },
   });
 
-  return NextResponse.json({ identified: true, card: fullCard });
+  return NextResponse.json({
+    identified: true,
+    cards: fullCards,
+  });
 }

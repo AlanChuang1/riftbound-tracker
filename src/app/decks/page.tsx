@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Layers, Plus, Trash2, ChevronRight } from "lucide-react";
+import { Layers, Plus, Trash2, ChevronRight, Upload, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 interface DeckCard {
@@ -31,9 +31,14 @@ export default function DecksPage() {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importName, setImportName] = useState("");
+  const [importList, setImportList] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
 
   useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
+    if (status === "unauthenticated") router.push("/login?callbackUrl=/decks");
   }, [status, router]);
 
   useEffect(() => {
@@ -76,6 +81,32 @@ export default function DecksPage() {
     await fetch(`/api/decks/${id}`, { method: "DELETE" });
   }
 
+  async function importDeck(e: React.FormEvent) {
+    e.preventDefault();
+    if (!importName.trim() || !importList.trim()) return;
+    setImporting(true);
+    setImportError("");
+    try {
+      const res = await fetch("/api/decks/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: importName, deckList: importList }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.unmatched?.length > 0) {
+          setImportError(`Imported ${data.matched} cards. Could not match: ${data.unmatched.join(", ")}`);
+        }
+        router.push(`/decks/${data.deck.id}`);
+      } else {
+        setImportError(data.error || "Import failed");
+      }
+    } catch {
+      setImportError("Import failed. Please try again.");
+    }
+    setImporting(false);
+  }
+
   function getTotalCards(deck: Deck) {
     return deck.cards.reduce((sum, c) => sum + c.quantity, 0);
   }
@@ -102,13 +133,22 @@ export default function DecksPage() {
           <h1 className="text-xl font-bold md:text-2xl">My Decks</h1>
           <p className="text-sm text-muted mt-0.5">{decks.length} deck{decks.length !== 1 ? "s" : ""}</p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
-        >
-          <Plus size={16} />
-          New Deck
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm font-medium text-muted hover:text-foreground hover:bg-foreground/5 transition"
+          >
+            <Upload size={14} />
+            Import
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
+          >
+            <Plus size={16} />
+            New Deck
+          </button>
+        </div>
       </div>
 
       {/* Create Deck Modal */}
@@ -147,6 +187,54 @@ export default function DecksPage() {
                   className="flex-1 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50 transition"
                 >
                   {creating ? "Creating..." : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import Deck Modal */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowImport(false)}>
+          <div className="w-full max-w-md rounded-t-2xl md:rounded-2xl bg-card-bg border border-border p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold">Import Deck</h2>
+            <form onSubmit={importDeck} className="space-y-3">
+              {importError && (
+                <div className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{importError}</div>
+              )}
+              <input
+                type="text"
+                placeholder="Deck name"
+                value={importName}
+                onChange={(e) => setImportName(e.target.value)}
+                required
+                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary transition"
+                autoFocus
+              />
+              <textarea
+                placeholder={"Paste deck list here...\n\nFormat:\n2x Card Name\n3x Another Card\n1 Some Card"}
+                value={importList}
+                onChange={(e) => setImportList(e.target.value)}
+                required
+                rows={8}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-mono outline-none focus:border-primary transition resize-none"
+              />
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowImport(false); setImportError(""); }}
+                  className="flex-1 rounded-lg border border-border py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={importing}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50 transition"
+                >
+                  {importing && <Loader2 size={14} className="animate-spin" />}
+                  {importing ? "Importing..." : "Import"}
                 </button>
               </div>
             </form>
