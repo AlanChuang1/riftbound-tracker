@@ -210,10 +210,13 @@ export default function DeckEditorPage() {
   function getDeckExportText() {
     if (!deck) return "";
     const legend = deck.cards.filter((dc) => dc.card.type === "Legend");
-    const champion = deck.cards.filter((dc) => dc.card.supertype === "Champion");
+    const chosenChampion = deck.champion
+      ? deck.cards.filter((dc) => dc.card.supertype === "Champion" && dc.card.name === deck.champion)
+      : [];
     const battlefields = deck.cards.filter((dc) => dc.card.type === "Battlefield");
+    const chosenChampionNames = new Set(chosenChampion.map((dc) => dc.card.name));
     const mainDeck = deck.cards.filter(
-      (dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && dc.card.supertype !== "Champion"
+      (dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && !chosenChampionNames.has(dc.card.name)
     );
 
     const fmt = (cards: DeckCard[]) =>
@@ -221,7 +224,7 @@ export default function DeckEditorPage() {
 
     const sections: string[] = [];
     if (legend.length > 0) sections.push(`Legend:\n${fmt(legend)}`);
-    if (champion.length > 0) sections.push(`Champion:\n${fmt(champion)}`);
+    if (chosenChampion.length > 0) sections.push(`Champion:\n${fmt(chosenChampion)}`);
     if (mainDeck.length > 0) sections.push(`MainDeck:\n${fmt(mainDeck)}`);
     if (battlefields.length > 0) sections.push(`Battlefields:\n${fmt(battlefields)}`);
     if (deck.runes && Object.keys(deck.runes).length > 0) {
@@ -271,12 +274,15 @@ export default function DeckEditorPage() {
 
   if (!deck) return null;
 
-  // Group cards by section
+  // Group cards by section — only the chosen champion goes in the Champion section
   const legendCards = deck.cards.filter((dc) => dc.card.type === "Legend");
-  const championCards = deck.cards.filter((dc) => dc.card.supertype === "Champion");
+  const championCards = deck.champion
+    ? deck.cards.filter((dc) => dc.card.supertype === "Champion" && dc.card.name === deck.champion)
+    : [];
   const battlefieldCards = deck.cards.filter((dc) => dc.card.type === "Battlefield");
+  const chosenChampionName = deck.champion || "";
   const mainDeckCards = deck.cards
-    .filter((dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && dc.card.supertype !== "Champion")
+    .filter((dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && !(dc.card.supertype === "Champion" && dc.card.name === chosenChampionName))
     .sort((a, b) => (a.card.cost ?? a.card.energy ?? 99) - (b.card.cost ?? b.card.energy ?? 99));
 
   const deckRunes = deck.runes || {};
