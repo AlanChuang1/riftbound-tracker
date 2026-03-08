@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Combine all card entries (non-rune) for matching
+  // All cards including champion/legend go into the deck as cards
   const cardEntries = [
     ...sections.Legend,
     ...sections.Champion,
@@ -86,13 +87,41 @@ export async function POST(req: NextRequest) {
     select: { id: true, name: true, type: true, supertype: true },
   });
 
+  // Fuzzy match: try exact, then title after comma (for Legend format like "Yasuo, Unforgiven"),
+  // then partial contains match
+  function findCard(entryName: string) {
+    const lower = entryName.toLowerCase();
+    // Exact match
+    const exact = allCards.find((c) => c.name.toLowerCase() === lower);
+    if (exact) return exact;
+    // Try part after comma (e.g. "Yasuo, Unforgiven" → "Unforgiven")
+    if (entryName.includes(",")) {
+      const afterComma = entryName.split(",").slice(1).join(",").trim().toLowerCase();
+      const commaMatch = allCards.find((c) => c.name.toLowerCase() === afterComma);
+      if (commaMatch) return commaMatch;
+    }
+    // Try partial: DB name contains input or input contains DB name
+    const partial = allCards.find(
+      (c) => c.name.toLowerCase().includes(lower) || lower.includes(c.name.toLowerCase())
+    );
+    if (partial) return partial;
+    // Try matching individual words (3+ chars) against card names
+    const words = lower.split(/[\s,]+/).filter((w) => w.length > 2);
+    if (words.length > 0) {
+      const wordMatch = allCards.find((c) => {
+        const cardLower = c.name.toLowerCase();
+        return words.filter((w) => cardLower.includes(w)).length >= Math.ceil(words.length / 2);
+      });
+      if (wordMatch) return wordMatch;
+    }
+    return null;
+  }
+
   const matched: { cardId: string; quantity: number; name: string }[] = [];
   const unmatched: string[] = [];
 
   for (const entry of cardEntries) {
-    const card = allCards.find(
-      (c) => c.name.toLowerCase() === entry.name.toLowerCase()
-    );
+    const card = findCard(entry.name);
     if (card) {
       matched.push({ cardId: card.id, quantity: entry.quantity, name: card.name });
     } else {
@@ -100,10 +129,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Determine champion name from matched Champion section entries
+  // Determine chosen champion: first entry in Champion section
+  // The champion card itself is still added to the deck as a regular card
   const championEntry = sections.Champion[0];
   const championName = championEntry
-    ? allCards.find((c) => c.name.toLowerCase() === championEntry.name.toLowerCase())?.name || championEntry.name
+    ? findCard(championEntry.name)?.name || championEntry.name
     : undefined;
 
   // Create deck with matched cards
