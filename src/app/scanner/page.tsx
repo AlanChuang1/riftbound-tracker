@@ -10,10 +10,9 @@ import {
   X,
   Loader2,
   ScanLine,
-  Pause,
-  Play,
   Search,
   Plus,
+  Trash2,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -42,43 +41,42 @@ export default function ScannerPage() {
 
   const [scanning, setScanning] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [autoScan, setAutoScan] = useState(false);
+  const [scanPaused, setScanPaused] = useState(false);
   const [error, setError] = useState("");
 
   const [detectedCards, setDetectedCards] = useState<IdentifiedCard[]>([]);
   const [addedCardIds, setAddedCardIds] = useState<Set<string>>(new Set());
 
-  // Confirmation state
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirmation | null>(null);
 
-  // Manual search state
   const [showManualSearch, setShowManualSearch] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
   const [manualResults, setManualResults] = useState<IdentifiedCard[]>([]);
   const [searchingManual, setSearchingManual] = useState(false);
 
   const seenCardIdsRef = useRef<Set<string>>(new Set());
-  const autoScanRef = useRef(false);
   const scanningRef = useRef(false);
+  const scanPausedRef = useRef(false);
 
-  useEffect(() => {
-    autoScanRef.current = autoScan;
-  }, [autoScan]);
   useEffect(() => {
     scanningRef.current = scanning;
   }, [scanning]);
-
-  // Auto-scan loop
   useEffect(() => {
-    if (!autoScan || !cameraActive) return;
-    scanFrame();
+    scanPausedRef.current = scanPaused;
+  }, [scanPaused]);
+
+  // Auto-scan loop — starts as soon as camera is active
+  useEffect(() => {
+    if (!cameraActive || scanPaused) return;
     const interval = setInterval(() => {
-      if (autoScanRef.current && !scanningRef.current) {
+      if (!scanPausedRef.current && !scanningRef.current) {
         scanFrame();
       }
     }, 3000);
+    // Initial scan immediately
+    if (!scanningRef.current) scanFrame();
     return () => clearInterval(interval);
-  }, [autoScan, cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameraActive, scanPaused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status === "unauthenticated") {
     router.push("/login?callbackUrl=/scanner");
@@ -99,6 +97,7 @@ export default function ScannerPage() {
         videoRef.current.play().catch(() => {});
       }
       setCameraActive(true);
+      setScanPaused(false);
       setError("");
     } catch {
       setError("Could not access camera. Please use file upload instead.");
@@ -112,7 +111,7 @@ export default function ScannerPage() {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
-    setAutoScan(false);
+    setScanPaused(false);
   }
 
   function captureFrame(): File | null {
@@ -154,6 +153,35 @@ export default function ScannerPage() {
       ...prev,
     ]);
     setPendingConfirm(null);
+    setScanPaused(false);
+  }
+
+  function removeFromPending(cardId: string) {
+    if (!pendingConfirm) return;
+    const updated = {
+      ...pendingConfirm,
+      cards: pendingConfirm.cards.filter((c) => c.id !== cardId),
+    };
+    if (updated.cards.length === 0 && !updated.suggestions?.length) {
+      setPendingConfirm(null);
+      setScanPaused(false);
+    } else {
+      setPendingConfirm(updated);
+    }
+  }
+
+  function removeFromSuggestions(cardId: string) {
+    if (!pendingConfirm) return;
+    const updated = {
+      ...pendingConfirm,
+      suggestions: pendingConfirm.suggestions?.filter((c) => c.id !== cardId),
+    };
+    if (updated.cards.length === 0 && (!updated.suggestions || updated.suggestions.length === 0)) {
+      setPendingConfirm(null);
+      setScanPaused(false);
+    } else {
+      setPendingConfirm(updated);
+    }
   }
 
   async function scanFrame() {
@@ -176,7 +204,7 @@ export default function ScannerPage() {
       const hasSuggestedNames = data.suggestedNames?.length > 0;
 
       if (hasCards || hasSuggestions || hasSuggestedNames) {
-        if (autoScan) setAutoScan(false);
+        setScanPaused(true);
         const newCards = hasCards
           ? data.cards.filter((c: IdentifiedCard) => !seenCardIdsRef.current.has(c.id))
           : [];
@@ -185,11 +213,9 @@ export default function ScannerPage() {
           suggestions: hasSuggestions ? data.suggestions : undefined,
           suggestedNames: hasSuggestedNames ? data.suggestedNames : undefined,
         });
-      } else if (!autoScan) {
-        setError(data.message || "Could not identify any cards in the image.");
       }
     } catch {
-      if (!autoScan) setError("Scan failed. Please try again.");
+      // will retry next interval
     }
     setScanning(false);
   }
@@ -230,6 +256,7 @@ export default function ScannerPage() {
     seenCardIdsRef.current = new Set();
     setError("");
     setPendingConfirm(null);
+    setScanPaused(false);
   }
 
   return (
@@ -256,7 +283,7 @@ export default function ScannerPage() {
         autoPlay
         playsInline
         muted
-        className={cameraActive ? "hidden" : "hidden"}
+        className="hidden"
       />
       <canvas ref={canvasRef} className="hidden" />
 
@@ -294,7 +321,7 @@ export default function ScannerPage() {
         </div>
       )}
 
-      {/* Live Camera View — mirrors the hidden video */}
+      {/* Live Camera View */}
       {cameraActive && (
         <div className="space-y-3 mb-4">
           <div className="relative rounded-xl overflow-hidden bg-black aspect-[3/4]">
@@ -307,53 +334,26 @@ export default function ScannerPage() {
                   <span className="text-[11px] text-white">Scanning...</span>
                 </div>
               )}
-              {autoScan && !scanning && (
+              {!scanning && !scanPaused && (
                 <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1.5">
                   <ScanLine size={12} className="text-success" />
-                  <span className="text-[11px] text-white">Auto-scan on</span>
+                  <span className="text-[11px] text-white">Auto-scanning</span>
+                </div>
+              )}
+              {scanPaused && (
+                <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1.5">
+                  <span className="text-[11px] text-white">Paused</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <button
-              onClick={stopCamera}
-              className="flex-1 rounded-lg border border-border bg-card-bg py-3 text-sm font-medium hover:bg-foreground/5 transition"
-            >
-              Close Camera
-            </button>
-            <button
-              onClick={() => setAutoScan(!autoScan)}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold transition ${
-                autoScan
-                  ? "bg-success text-white hover:bg-success/90"
-                  : "bg-primary text-white hover:bg-primary-hover"
-              }`}
-            >
-              {autoScan ? (
-                <>
-                  <Pause size={14} />
-                  Stop Scan
-                </>
-              ) : (
-                <>
-                  <Play size={14} />
-                  Auto-scan
-                </>
-              )}
-            </button>
-          </div>
-
-          {!autoScan && (
-            <button
-              onClick={scanFrame}
-              disabled={scanning}
-              className="w-full rounded-lg bg-primary/10 border border-primary/30 py-3 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-50 transition"
-            >
-              {scanning ? "Scanning..." : "Scan Now"}
-            </button>
-          )}
+          <button
+            onClick={stopCamera}
+            className="w-full rounded-lg border border-border bg-card-bg py-3 text-sm font-medium hover:bg-foreground/5 transition"
+          >
+            Close Camera
+          </button>
         </div>
       )}
 
@@ -391,6 +391,12 @@ export default function ScannerPage() {
                         {card.type} &middot; {card.rarity}
                       </p>
                     </div>
+                    <button
+                      onClick={() => removeFromPending(card.id)}
+                      className="p-1.5 rounded-lg text-muted hover:text-danger hover:bg-danger/10 transition flex-shrink-0"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -417,10 +423,11 @@ export default function ScannerPage() {
           )}
 
           {/* Fuzzy suggestions — when no exact match */}
-          {pendingConfirm.cards.length === 0 && pendingConfirm.suggestions && pendingConfirm.suggestions.length > 0 && (
+          {pendingConfirm.suggestions && pendingConfirm.suggestions.length > 0 && (
             <>
               <p className="text-sm font-semibold">
-                Best guesses{pendingConfirm.suggestedNames ? ` for "${pendingConfirm.suggestedNames.join(", ")}"` : ""}
+                {pendingConfirm.cards.length > 0 ? "Also found possible matches" : "Best guesses"}
+                {pendingConfirm.suggestedNames ? ` for "${pendingConfirm.suggestedNames.join(", ")}"` : ""}
               </p>
               <div className="space-y-1.5 max-h-60 overflow-y-auto">
                 {pendingConfirm.suggestions.map((card) => (
@@ -454,27 +461,30 @@ export default function ScannerPage() {
                       <Plus size={12} />
                       Add
                     </button>
+                    <button
+                      onClick={() => removeFromSuggestions(card.id)}
+                      className="p-1.5 rounded-lg text-muted hover:text-danger hover:bg-danger/10 transition flex-shrink-0"
+                    >
+                      <X size={12} />
+                    </button>
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2">
+              {pendingConfirm.cards.length === 0 && (
                 <button
                   onClick={() => {
                     setPendingConfirm(null);
                     setShowManualSearch(true);
+                    if (pendingConfirm.suggestedNames?.[0]) {
+                      setManualQuery(pendingConfirm.suggestedNames[0]);
+                    }
                   }}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card-bg py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
+                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-border bg-card-bg py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
                 >
                   <Search size={14} />
                   Manual Entry
                 </button>
-                <button
-                  onClick={() => setPendingConfirm(null)}
-                  className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
-                >
-                  <X size={14} />
-                </button>
-              </div>
+              )}
             </>
           )}
 
@@ -502,7 +512,10 @@ export default function ScannerPage() {
                   Manual Entry
                 </button>
                 <button
-                  onClick={() => setPendingConfirm(null)}
+                  onClick={() => {
+                    setPendingConfirm(null);
+                    setScanPaused(false);
+                  }}
                   className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
                 >
                   <X size={14} />
@@ -523,6 +536,7 @@ export default function ScannerPage() {
                 setShowManualSearch(false);
                 setManualQuery("");
                 setManualResults([]);
+                setScanPaused(false);
               }}
               className="p-1 text-muted hover:text-foreground"
             >
@@ -582,12 +596,12 @@ export default function ScannerPage() {
         </div>
       )}
 
-      {/* Detected Cards */}
+      {/* Added Cards */}
       {detectedCards.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">
-              Detected Cards ({detectedCards.length})
+              Added ({detectedCards.length})
             </h2>
             <button
               onClick={clearSession}
@@ -636,7 +650,6 @@ export default function ScannerPage() {
   );
 }
 
-// Renders the camera stream onto a visible canvas, mirroring the hidden video
 function CameraPreview({
   videoRef,
 }: {
