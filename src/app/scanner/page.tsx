@@ -164,7 +164,7 @@ export default function ScannerPage() {
       return updated;
     });
     setPendingConfirm(null);
-    setScanPaused(false);
+    stopCamera();
   }
 
   function removeFromPending(cardId: string) {
