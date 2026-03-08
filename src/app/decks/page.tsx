@@ -5,11 +5,12 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Layers, Plus, Trash2, ChevronRight, Upload, Loader2 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
 interface DeckCard {
   id: string;
   quantity: number;
-  card: { id: string; name: string; type: string; cost?: number };
+  card: { id: string; name: string; type: string; cost?: number; artUrl?: string; thumbnailUrl?: string };
 }
 
 interface Deck {
@@ -112,6 +113,11 @@ export default function DecksPage() {
 
   function getTotalCards(deck: Deck) {
     return deck.cards.reduce((sum, c) => sum + c.quantity, 0);
+  }
+
+  function getLegendImage(deck: Deck) {
+    const legend = deck.cards.find((dc) => dc.card.type === "Legend");
+    return legend?.card.thumbnailUrl || legend?.card.artUrl || null;
   }
 
   if (status === "loading" || (status === "authenticated" && loading)) {
@@ -265,32 +271,50 @@ export default function DecksPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {decks.map((deck) => (
-            <div
-              key={deck.id}
-              className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-4 hover:border-primary/30 transition"
-            >
-              <Link href={`/decks/${deck.id}`} className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{deck.name}</p>
-                <p className="text-xs text-muted mt-0.5">
-                  {getTotalCards(deck)} cards
-                  {deck.champion && ` • ${deck.champion}`}
-                </p>
-                {deck.description && (
-                  <p className="text-xs text-muted mt-1 truncate">{deck.description}</p>
-                )}
-              </Link>
-              <button
-                onClick={() => deleteDeck(deck.id)}
-                className="p-2 rounded-lg text-danger hover:bg-danger/10 transition flex-shrink-0"
+          {decks.map((deck) => {
+            const legendImg = getLegendImage(deck);
+            return (
+              <div
+                key={deck.id}
+                className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-4 hover:border-primary/30 transition"
               >
-                <Trash2 size={16} />
-              </button>
-              <Link href={`/decks/${deck.id}`} className="p-2 text-muted hover:text-foreground flex-shrink-0">
-                <ChevronRight size={16} />
-              </Link>
-            </div>
-          ))}
+                <Link href={`/decks/${deck.id}`} className="relative h-14 w-10 flex-shrink-0 rounded-lg overflow-hidden bg-background">
+                  {legendImg ? (
+                    <Image
+                      src={legendImg}
+                      alt={deck.name}
+                      fill
+                      className="object-cover"
+                      sizes="40px"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-primary/10 flex items-center justify-center">
+                      <Layers size={16} className="text-muted" />
+                    </div>
+                  )}
+                </Link>
+                <Link href={`/decks/${deck.id}`} className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{deck.name}</p>
+                  <p className="text-xs text-muted mt-0.5">
+                    {getTotalCards(deck)} cards
+                    {deck.champion && ` • ${deck.champion}`}
+                  </p>
+                  {deck.description && (
+                    <p className="text-xs text-muted mt-1 truncate">{deck.description}</p>
+                  )}
+                </Link>
+                <button
+                  onClick={() => deleteDeck(deck.id)}
+                  className="p-2 rounded-lg text-danger hover:bg-danger/10 transition flex-shrink-0"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <Link href={`/decks/${deck.id}`} className="p-2 text-muted hover:text-foreground flex-shrink-0">
+                  <ChevronRight size={16} />
+                </Link>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

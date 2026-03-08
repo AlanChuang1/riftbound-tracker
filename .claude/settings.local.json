@@ -12,7 +12,14 @@
       "Bash(where node)",
       "WebFetch(domain:riftcodex.com)",
       "WebFetch(domain:api.riftcodex.com)",
-      "Bash(npm install @ducanh2912/next-pwa)"
+      "Bash(npm install @ducanh2912/next-pwa)",
+      "Bash(git add src/app/login/page.tsx)",
+      "Bash(git commit:*)",
+      "Bash(git add src/app/scanner/page.tsx)",
+      "Bash(git push origin user/alan/dev)",
+      "Bash(npx next build)",
+      "Bash(git add src/app/scanner/page.tsx src/app/api/scan/route.ts)",
+      "Bash(git add src/app/scanner/page.tsx src/lib/auth.ts)"
     ]
   }
 }
