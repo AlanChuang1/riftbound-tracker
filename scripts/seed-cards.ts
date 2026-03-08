@@ -107,6 +107,7 @@ async function main() {
         flavorText: null,
         faction,
         type: card.classification.type,
+        supertype: card.classification.supertype || null,
         rarity: card.classification.rarity,
         cost: null, // Riftbound uses energy as the primary cost
         power: card.attributes.power,

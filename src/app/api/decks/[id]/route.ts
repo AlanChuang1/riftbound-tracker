@@ -29,7 +29,7 @@ export async function PUT(
   const { id } = await params;
   const session = await requireSession();
   const userId = (session.user as { id: string }).id;
-  const { name, description, champion, cards } = await req.json();
+  const { name, description, champion, runes, cards } = await req.json();
 
   const deck = await prisma.deck.findFirst({ where: { id, userId } });
   if (!deck) {
@@ -54,6 +54,7 @@ export async function PUT(
         ...(name && { name }),
         ...(description !== undefined && { description }),
         ...(champion !== undefined && { champion }),
+        ...(runes !== undefined && { runes }),
       },
       include: { cards: { include: { card: true } } },
     });

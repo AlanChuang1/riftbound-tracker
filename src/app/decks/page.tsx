@@ -213,11 +213,11 @@ export default function DecksPage() {
                 autoFocus
               />
               <textarea
-                placeholder={"Paste deck list here...\n\nFormat:\n2x Card Name\n3x Another Card\n1 Some Card"}
+                placeholder={"Paste deck list here...\n\nLegend:\n1 Card Name\n\nChampion:\n1 Card Name\n\nMainDeck:\n3 Card Name\n\nBattlefields:\n1 Stage Name\n\nRune Pool:\n5 Calm Rune\n7 Chaos Rune"}
                 value={importList}
                 onChange={(e) => setImportList(e.target.value)}
                 required
-                rows={8}
+                rows={12}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-mono outline-none focus:border-primary transition resize-none"
               />
               <div className="flex gap-3">
