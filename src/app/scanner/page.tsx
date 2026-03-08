@@ -47,7 +47,6 @@ export default function ScannerPage() {
 
   const [scanning, setScanning] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [scanPaused, setScanPaused] = useState(false);
   const [error, setError] = useState("");
 
   const [detectedEntries, setDetectedEntries] = useState<CardEntry[]>([]);
@@ -61,27 +60,23 @@ export default function ScannerPage() {
   const [searchingManual, setSearchingManual] = useState(false);
 
   const scanningRef = useRef(false);
-  const scanPausedRef = useRef(false);
 
   useEffect(() => {
     scanningRef.current = scanning;
   }, [scanning]);
-  useEffect(() => {
-    scanPausedRef.current = scanPaused;
-  }, [scanPaused]);
 
   // Auto-scan loop — starts as soon as camera is active
   useEffect(() => {
-    if (!cameraActive || scanPaused) return;
+    if (!cameraActive) return;
     const interval = setInterval(() => {
-      if (!scanPausedRef.current && !scanningRef.current) {
+      if (!scanningRef.current) {
         scanFrame();
       }
     }, 3000);
     // Initial scan immediately
     if (!scanningRef.current) scanFrame();
     return () => clearInterval(interval);
-  }, [cameraActive, scanPaused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status === "unauthenticated") {
     router.push("/login?callbackUrl=/scanner");
@@ -102,7 +97,6 @@ export default function ScannerPage() {
         videoRef.current.play().catch(() => {});
       }
       setCameraActive(true);
-      setScanPaused(false);
       setError("");
     } catch {
       setError("Could not access camera. Please use file upload instead.");
@@ -116,7 +110,6 @@ export default function ScannerPage() {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
-    setScanPaused(false);
   }
 
   function captureFrame(): File | null {
@@ -164,7 +157,6 @@ export default function ScannerPage() {
       return updated;
     });
     setPendingConfirm(null);
-    stopCamera();
   }
 
   function removeFromPending(cardId: string) {
@@ -175,8 +167,7 @@ export default function ScannerPage() {
     };
     if (updated.entries.length === 0 && !updated.suggestions?.length) {
       setPendingConfirm(null);
-      setScanPaused(false);
-    } else {
+      } else {
       setPendingConfirm(updated);
     }
   }
@@ -201,7 +192,6 @@ export default function ScannerPage() {
     };
     if (updated.entries.length === 0 && (!updated.suggestions || updated.suggestions.length === 0)) {
       setPendingConfirm(null);
-      setScanPaused(false);
     } else {
       setPendingConfirm(updated);
     }
@@ -227,7 +217,7 @@ export default function ScannerPage() {
       const hasSuggestedNames = data.suggestedNames?.length > 0;
 
       if (hasCards || hasSuggestions || hasSuggestedNames) {
-        setScanPaused(true);
+        stopCamera();
         // Build entries with quantity (count duplicates from the scan)
         const entries: CardEntry[] = [];
         if (hasCards) {
@@ -287,7 +277,6 @@ export default function ScannerPage() {
     setAddedCardIds(new Set());
     setError("");
     setPendingConfirm(null);
-    setScanPaused(false);
   }
 
   return (
@@ -365,15 +354,10 @@ export default function ScannerPage() {
                   <span className="text-[11px] text-white">Scanning...</span>
                 </div>
               )}
-              {!scanning && !scanPaused && (
+              {!scanning && (
                 <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1.5">
                   <ScanLine size={12} className="text-success" />
                   <span className="text-[11px] text-white">Auto-scanning</span>
-                </div>
-              )}
-              {scanPaused && (
-                <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1.5">
-                  <span className="text-[11px] text-white">Paused</span>
                 </div>
               )}
             </div>
@@ -560,7 +544,6 @@ export default function ScannerPage() {
                 <button
                   onClick={() => {
                     setPendingConfirm(null);
-                    setScanPaused(false);
                   }}
                   className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
                 >
@@ -582,7 +565,6 @@ export default function ScannerPage() {
                 setShowManualSearch(false);
                 setManualQuery("");
                 setManualResults([]);
-                setScanPaused(false);
               }}
               className="p-1 text-muted hover:text-foreground"
             >
