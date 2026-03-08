@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { geminiFlash } from "@/lib/gemini";
+import { generateWithFallback } from "@/lib/gemini";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
   const cardListStr = allCards.map((c) => `${c.name} (${c.set})`).join("\n");
 
-  const result = await geminiFlash.generateContent([
+  const { text: responseText, model: usedModel } = await generateWithFallback([
     {
       inlineData: { mimeType, data: base64 },
     },
@@ -37,7 +37,7 @@ Only include cards you are confident about.`,
     },
   ]);
 
-  const responseText = result.response.text().trim();
+  console.log(`Scan used model: ${usedModel}`);
 
   // Parse the JSON array from the response
   let identifiedNames: string[] = [];

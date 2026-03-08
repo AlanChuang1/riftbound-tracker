@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { geminiFlash } from "@/lib/gemini";
+import { generateWithFallback } from "@/lib/gemini";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 
@@ -86,8 +86,7 @@ For each swap:
 ### Strategy Tips
 (2-3 actionable tips for playing this deck better)`;
 
-  const result = await geminiFlash.generateContent(prompt);
-  const analysis = result.response.text();
+  const { text: analysis } = await generateWithFallback([prompt]);
 
   return NextResponse.json({ analysis });
 }
