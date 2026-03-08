@@ -25,7 +25,8 @@ model Card {
   description String?
   flavorText  String?
   faction     String?
-  type        String   // Champion, Unit, Spell, Landmark, etc.
+  type        String   // Unit, Spell, Gear, Battlefield, Legend
+  supertype   String?  // Champion, Signature, Token
   rarity      String   // Common, Uncommon, Rare, Legendary, etc.
   cost        Int?
   power       Int?
@@ -68,6 +69,7 @@ model Deck {
   name        String
   description String?
   champion    String?    // Primary champion for the deck
+  runes       Json?      // Rune pool, e.g. {"Calm": 5, "Chaos": 7}
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 

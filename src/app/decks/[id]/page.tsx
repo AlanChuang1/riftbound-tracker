@@ -25,10 +25,12 @@ interface Card {
   id: string;
   name: string;
   type: string;
+  supertype?: string;
   rarity: string;
   faction?: string;
   cost?: number;
   power?: number;
+  energy?: number;
   artUrl?: string;
   thumbnailUrl?: string;
 }
@@ -45,8 +47,12 @@ interface Deck {
   name: string;
   description?: string;
   champion?: string;
+  runes?: Record<string, number>;
   cards: DeckCard[];
 }
+
+const RUNE_DOMAINS = ["Calm", "Chaos", "Order", "Mind", "Fury", "Body"];
+const DECK_SIZE = 56;
 
 export default function DeckEditorPage() {
   const { data: session, status } = useSession();
@@ -171,6 +177,7 @@ export default function DeckEditorPage() {
           name: deck.name,
           description: deck.description,
           champion: deck.champion,
+          runes: deck.runes || null,
           cards: deck.cards.map((dc) => ({
             cardId: dc.cardId,
             quantity: dc.quantity,
@@ -202,10 +209,29 @@ export default function DeckEditorPage() {
 
   function getDeckExportText() {
     if (!deck) return "";
-    const lines = deck.cards
-      .sort((a, b) => a.card.name.localeCompare(b.card.name))
-      .map((dc) => `${dc.quantity}x ${dc.card.name}`);
-    return `# ${deck.name}\n${lines.join("\n")}`;
+    const legend = deck.cards.filter((dc) => dc.card.type === "Legend");
+    const champion = deck.cards.filter((dc) => dc.card.supertype === "Champion");
+    const battlefields = deck.cards.filter((dc) => dc.card.type === "Battlefield");
+    const mainDeck = deck.cards.filter(
+      (dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && dc.card.supertype !== "Champion"
+    );
+
+    const fmt = (cards: DeckCard[]) =>
+      cards.sort((a, b) => a.card.name.localeCompare(b.card.name)).map((dc) => `${dc.quantity} ${dc.card.name}`).join("\n");
+
+    const sections: string[] = [];
+    if (legend.length > 0) sections.push(`Legend:\n${fmt(legend)}`);
+    if (champion.length > 0) sections.push(`Champion:\n${fmt(champion)}`);
+    if (mainDeck.length > 0) sections.push(`MainDeck:\n${fmt(mainDeck)}`);
+    if (battlefields.length > 0) sections.push(`Battlefields:\n${fmt(battlefields)}`);
+    if (deck.runes && Object.keys(deck.runes).length > 0) {
+      const runeLines = Object.entries(deck.runes)
+        .filter(([, count]) => count > 0)
+        .map(([domain, count]) => `${count} ${domain} Rune`);
+      sections.push(`Rune Pool:\n${runeLines.join("\n")}`);
+    }
+
+    return sections.join("\n\n");
   }
 
   async function copyDeckList() {
@@ -226,7 +252,9 @@ export default function DeckEditorPage() {
     setLoadingMissing(false);
   }
 
-  const totalCards = deck?.cards.reduce((sum, dc) => sum + dc.quantity, 0) || 0;
+  const totalCardCount = deck?.cards.reduce((sum, dc) => sum + dc.quantity, 0) || 0;
+  const totalRunes = deck?.runes ? Object.values(deck.runes).reduce((s, n) => s + n, 0) : 0;
+  const totalCards = totalCardCount + totalRunes;
 
   if (status === "loading" || loading) {
     return (
@@ -243,10 +271,25 @@ export default function DeckEditorPage() {
 
   if (!deck) return null;
 
-  // Sort cards by cost
-  const sortedCards = [...deck.cards].sort(
-    (a, b) => (a.card.cost ?? 99) - (b.card.cost ?? 99)
-  );
+  // Group cards by section
+  const legendCards = deck.cards.filter((dc) => dc.card.type === "Legend");
+  const championCards = deck.cards.filter((dc) => dc.card.supertype === "Champion");
+  const battlefieldCards = deck.cards.filter((dc) => dc.card.type === "Battlefield");
+  const mainDeckCards = deck.cards
+    .filter((dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && dc.card.supertype !== "Champion")
+    .sort((a, b) => (a.card.cost ?? a.card.energy ?? 99) - (b.card.cost ?? b.card.energy ?? 99));
+
+  const deckRunes = deck.runes || {};
+
+  function updateRune(domain: string, delta: number) {
+    if (!deck) return;
+    const current = deckRunes[domain] || 0;
+    const newVal = Math.max(0, current + delta);
+    const updated = { ...deckRunes, [domain]: newVal };
+    // Remove zero entries
+    Object.keys(updated).forEach((k) => { if (updated[k] === 0) delete updated[k]; });
+    setDeck({ ...deck, runes: Object.keys(updated).length > 0 ? updated : undefined });
+  }
 
   return (
     <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">
@@ -257,7 +300,9 @@ export default function DeckEditorPage() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold truncate">{deck.name}</h1>
-          <p className="text-sm text-muted">{totalCards} cards</p>
+          <p className={`text-sm ${totalCards === DECK_SIZE ? "text-success" : "text-muted"}`}>
+            {totalCards}/{DECK_SIZE} cards
+          </p>
         </div>
         <button
           onClick={fetchMissing}
@@ -299,64 +344,59 @@ export default function DeckEditorPage() {
         Add Cards
       </button>
 
-      {/* Deck Card List */}
-      {sortedCards.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <p className="text-muted">Deck is empty</p>
-          <p className="text-xs text-muted mt-1">Add cards to build your deck</p>
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          {sortedCards.map((dc) => (
-            <div
-              key={dc.cardId}
-              className="flex items-center gap-3 rounded-lg border border-border bg-card-bg px-3 py-2.5 hover:border-primary/30 transition"
-            >
-              <div className="relative h-10 w-7 flex-shrink-0 rounded overflow-hidden bg-background">
-                {dc.card.thumbnailUrl || dc.card.artUrl ? (
-                  <Image
-                    src={dc.card.thumbnailUrl || dc.card.artUrl!}
-                    alt={dc.card.name}
-                    fill
-                    className="object-cover"
-                    sizes="28px"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-primary/10" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{dc.card.name}</p>
-                <p className="text-[11px] text-muted">
-                  {dc.card.type}
-                  {dc.card.cost !== null && dc.card.cost !== undefined && ` • ${dc.card.cost} cost`}
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5">
+      {/* Deck Sections */}
+      <div className="space-y-4">
+        <DeckSection title="Legend" count={legendCards.reduce((s, dc) => s + dc.quantity, 0)} target={1} cards={legendCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
+        <DeckSection title="Champion" count={championCards.reduce((s, dc) => s + dc.quantity, 0)} target={1} cards={championCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
+        <DeckSection title="Main Deck" count={mainDeckCards.reduce((s, dc) => s + dc.quantity, 0)} cards={mainDeckCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
+        <DeckSection title="Battlefields" count={battlefieldCards.reduce((s, dc) => s + dc.quantity, 0)} target={3} cards={battlefieldCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
+
+        {/* Rune Pool */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Rune Pool</h3>
+            <span className={`text-xs ${totalRunes === 12 ? "text-success" : "text-muted"}`}>{totalRunes}/12</span>
+          </div>
+          <div className="space-y-1.5">
+            {RUNE_DOMAINS.map((domain) => {
+              const count = deckRunes[domain] || 0;
+              if (count === 0) return null;
+              return (
+                <div key={domain} className="flex items-center gap-3 rounded-lg border border-border bg-card-bg px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">{domain} Rune</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => updateRune(domain, -1)} className="p-1 rounded border border-border hover:bg-foreground/5 transition"><Minus size={12} /></button>
+                    <span className="text-sm font-semibold w-5 text-center">{count}</span>
+                    <button onClick={() => updateRune(domain, 1)} className="p-1 rounded border border-border hover:bg-foreground/5 transition"><Plus size={12} /></button>
+                  </div>
+                </div>
+              );
+            })}
+            {/* Add rune buttons for domains not yet in the pool */}
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {RUNE_DOMAINS.filter((d) => !deckRunes[d]).map((domain) => (
                 <button
-                  onClick={() => updateCardQuantity(dc.cardId, -1)}
-                  className="p-1 rounded border border-border hover:bg-foreground/5 transition"
+                  key={domain}
+                  onClick={() => updateRune(domain, 1)}
+                  className="flex items-center gap-1 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs text-muted hover:border-primary/50 hover:text-primary transition"
                 >
-                  <Minus size={12} />
+                  <Plus size={10} />
+                  {domain}
                 </button>
-                <span className="text-sm font-semibold w-5 text-center">{dc.quantity}</span>
-                <button
-                  onClick={() => updateCardQuantity(dc.cardId, 1)}
-                  className="p-1 rounded border border-border hover:bg-foreground/5 transition"
-                >
-                  <Plus size={12} />
-                </button>
-                <button
-                  onClick={() => removeCard(dc.cardId)}
-                  className="p-1 rounded text-danger hover:bg-danger/10 transition ml-1"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
-      )}
+
+        {totalCards === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-muted">Deck is empty</p>
+            <p className="text-xs text-muted mt-1">Add cards to build your deck</p>
+          </div>
+        )}
+      </div>
 
       {/* Add Cards Modal */}
       {showAddCards && (
@@ -638,6 +678,75 @@ export default function DeckEditorPage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeckSection({
+  title,
+  count,
+  target,
+  cards,
+  updateCardQuantity,
+  removeCard,
+}: {
+  title: string;
+  count: number;
+  target?: number;
+  cards: DeckCard[];
+  updateCardQuantity: (cardId: string, delta: number) => void;
+  removeCard: (cardId: string) => void;
+}) {
+  if (cards.length === 0 && !target) return null;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">{title}</h3>
+        <span className={`text-xs ${target && count === target ? "text-success" : "text-muted"}`}>
+          {count}{target ? `/${target}` : ""}
+        </span>
+      </div>
+      {cards.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border py-3 text-center text-xs text-muted">
+          No {title.toLowerCase()} added
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {cards.map((dc) => (
+            <div
+              key={dc.cardId}
+              className="flex items-center gap-3 rounded-lg border border-border bg-card-bg px-3 py-2.5 hover:border-primary/30 transition"
+            >
+              <div className="relative h-10 w-7 flex-shrink-0 rounded overflow-hidden bg-background">
+                {dc.card.thumbnailUrl || dc.card.artUrl ? (
+                  <Image
+                    src={dc.card.thumbnailUrl || dc.card.artUrl!}
+                    alt={dc.card.name}
+                    fill
+                    className="object-cover"
+                    sizes="28px"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-primary/10" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{dc.card.name}</p>
+                <p className="text-[11px] text-muted">
+                  {dc.card.type}
+                  {dc.card.supertype && ` • ${dc.card.supertype}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => updateCardQuantity(dc.cardId, -1)} className="p-1 rounded border border-border hover:bg-foreground/5 transition"><Minus size={12} /></button>
+                <span className="text-sm font-semibold w-5 text-center">{dc.quantity}</span>
+                <button onClick={() => updateCardQuantity(dc.cardId, 1)} className="p-1 rounded border border-border hover:bg-foreground/5 transition"><Plus size={12} /></button>
+                <button onClick={() => removeCard(dc.cardId)} className="p-1 rounded text-danger hover:bg-danger/10 transition ml-1"><Trash2 size={12} /></button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
