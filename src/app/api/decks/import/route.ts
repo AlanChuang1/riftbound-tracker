@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 
-const RUNE_DOMAINS = ["Calm", "Chaos", "Order", "Mind", "Fury", "Body"];
-
-// Sections we ignore (not added to the deck)
-const IGNORED_SECTIONS = new Set(["Sideboard", "RunePool"]);
-
 export async function POST(req: NextRequest) {
   const session = await requireSession();
   const userId = (session.user as { id: string }).id;
@@ -62,26 +57,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Parse rune pool
-  const runes: Record<string, number> = {};
-  for (const entry of sections.RunePool) {
-    const runeDomain = RUNE_DOMAINS.find(
-      (d) => entry.name.toLowerCase().includes(d.toLowerCase())
-    );
-    if (runeDomain) {
-      runes[runeDomain] = (runes[runeDomain] || 0) + entry.quantity;
-    }
-  }
-
-  // Combine card entries from non-ignored sections
+  // Combine card entries from non-ignored sections (including RunePool now)
   const cardEntries = [
     ...sections.Legend,
     ...sections.Champion,
     ...sections.MainDeck,
     ...sections.Battlefields,
+    ...sections.RunePool,
   ];
 
-  if (cardEntries.length === 0 && Object.keys(runes).length === 0) {
+  if (cardEntries.length === 0) {
     return NextResponse.json(
       { error: "No valid cards found in deck list" },
       { status: 400 }
@@ -155,7 +140,6 @@ export async function POST(req: NextRequest) {
       userId,
       name,
       champion: championName,
-      runes: Object.keys(runes).length > 0 ? runes : undefined,
       cards: {
         create: matched.map((m) => ({
           cardId: m.cardId,

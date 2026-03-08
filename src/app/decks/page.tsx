@@ -136,7 +136,7 @@ export default function DecksPage() {
   if (status === "unauthenticated") return null;
 
   return (
-    <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">
+    <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto pb-20">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold md:text-2xl">My Decks</h1>
@@ -206,9 +206,11 @@ export default function DecksPage() {
       {/* Import Deck Modal */}
       {showImport && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowImport(false)}>
-          <div className="w-full max-w-md rounded-t-2xl md:rounded-2xl bg-card-bg border border-border p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold">Import Deck</h2>
-            <form onSubmit={importDeck} className="space-y-3">
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-t-2xl md:rounded-2xl bg-card-bg border border-border" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 pb-0">
+              <h2 className="text-lg font-bold">Import Deck</h2>
+            </div>
+            <form onSubmit={importDeck} className="flex flex-col flex-1 min-h-0 p-5 pt-3 space-y-3">
               {importError && (
                 <div className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger space-y-2">
                   <p>{importError}</p>
@@ -229,7 +231,7 @@ export default function DecksPage() {
                 value={importName}
                 onChange={(e) => setImportName(e.target.value)}
                 required
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary transition"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary transition flex-shrink-0"
                 autoFocus
               />
               <textarea
@@ -237,10 +239,10 @@ export default function DecksPage() {
                 value={importList}
                 onChange={(e) => setImportList(e.target.value)}
                 required
-                rows={12}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-mono outline-none focus:border-primary transition resize-none"
+                rows={8}
+                className="w-full flex-1 min-h-[120px] rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-mono outline-none focus:border-primary transition resize-none"
               />
-              <div className="flex gap-3">
+              <div className="flex gap-3 flex-shrink-0 pb-safe">
                 <button
                   type="button"
                   onClick={() => { setShowImport(false); setImportError(""); }}
