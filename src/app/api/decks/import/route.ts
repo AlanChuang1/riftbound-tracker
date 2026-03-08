@@ -4,6 +4,9 @@ import { requireSession } from "@/lib/session";
 
 const RUNE_DOMAINS = ["Calm", "Chaos", "Order", "Mind", "Fury", "Body"];
 
+// Sections we ignore (not added to the deck)
+const IGNORED_SECTIONS = new Set(["Sideboard", "RunePool"]);
+
 export async function POST(req: NextRequest) {
   const session = await requireSession();
   const userId = (session.user as { id: string }).id;
@@ -26,20 +29,24 @@ export async function POST(req: NextRequest) {
     MainDeck: [],
     Battlefields: [],
     RunePool: [],
+    Sideboard: [],
   };
 
   for (const line of lines) {
     if (!line || line.startsWith("#") || line.startsWith("//")) continue;
 
-    // Check for section headers
-    const headerMatch = line.match(/^(Legend|Champion|MainDeck|Main\s*Deck|Battlefields|Rune\s*Pool)\s*:?\s*$/i);
+    // Check for section headers (flexible matching)
+    const headerMatch = line.match(
+      /^(Legend|Champion|MainDeck|Main\s*Deck|Battlefields?|Rune\s*Pool|Runes?|Sideboard|Side\s*Board)\s*:?\s*$/i
+    );
     if (headerMatch) {
-      const header = headerMatch[1].replace(/\s+/g, "");
-      if (/legend/i.test(header)) currentSection = "Legend";
-      else if (/champion/i.test(header)) currentSection = "Champion";
-      else if (/main/i.test(header)) currentSection = "MainDeck";
-      else if (/battlefield/i.test(header)) currentSection = "Battlefields";
-      else if (/rune/i.test(header)) currentSection = "RunePool";
+      const header = headerMatch[1].replace(/\s+/g, "").toLowerCase();
+      if (/^legend/.test(header)) currentSection = "Legend";
+      else if (/^champion/.test(header)) currentSection = "Champion";
+      else if (/^main/.test(header)) currentSection = "MainDeck";
+      else if (/^battlefield/.test(header)) currentSection = "Battlefields";
+      else if (/^rune/.test(header)) currentSection = "RunePool";
+      else if (/^side/.test(header)) currentSection = "Sideboard";
       continue;
     }
 
@@ -66,8 +73,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Combine all card entries (non-rune) for matching
-  // All cards including champion/legend go into the deck as cards
+  // Combine card entries from non-ignored sections
   const cardEntries = [
     ...sections.Legend,
     ...sections.Champion,
@@ -117,26 +123,33 @@ export async function POST(req: NextRequest) {
     return null;
   }
 
-  const matched: { cardId: string; quantity: number; name: string }[] = [];
+  // Merge duplicate card entries (same card appearing in multiple sections)
+  const cardMap = new Map<string, { cardId: string; quantity: number; name: string }>();
   const unmatched: string[] = [];
 
   for (const entry of cardEntries) {
     const card = findCard(entry.name);
     if (card) {
-      matched.push({ cardId: card.id, quantity: entry.quantity, name: card.name });
+      const existing = cardMap.get(card.id);
+      if (existing) {
+        existing.quantity += entry.quantity;
+      } else {
+        cardMap.set(card.id, { cardId: card.id, quantity: entry.quantity, name: card.name });
+      }
     } else {
       unmatched.push(entry.name);
     }
   }
 
+  const matched = [...cardMap.values()];
+
   // Determine chosen champion: first entry in Champion section
-  // The champion card itself is still added to the deck as a regular card
   const championEntry = sections.Champion[0];
   const championName = championEntry
     ? findCard(championEntry.name)?.name || championEntry.name
     : undefined;
 
-  // Create deck with matched cards
+  // Create deck with matched cards (allow partial imports)
   const deck = await prisma.deck.create({
     data: {
       userId,

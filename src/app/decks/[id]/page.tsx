@@ -17,6 +17,7 @@ import {
   Copy,
   Check,
   AlertCircle,
+  GripVertical,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -287,6 +288,26 @@ export default function DeckEditorPage() {
 
   const deckRunes = deck.runes || {};
 
+  function handleCardDrop(cardId: string, targetSection: string) {
+    if (!deck) return;
+    const dc = deck.cards.find((c) => c.cardId === cardId);
+    if (!dc) return;
+
+    if (targetSection === "Champion") {
+      // Only champion-supertype units can be set as chosen champion
+      if (dc.card.supertype === "Champion") {
+        setDeck({ ...deck, champion: dc.card.name });
+      }
+    } else if (targetSection === "Legend") {
+      // Can't reassign types — just ignore non-legend drops
+    } else if (targetSection === "Main Deck") {
+      // If dragging the chosen champion to main deck, unset chosen champion
+      if (deck.champion === dc.card.name) {
+        setDeck({ ...deck, champion: undefined });
+      }
+    }
+  }
+
   function updateRune(domain: string, delta: number) {
     if (!deck) return;
     const current = deckRunes[domain] || 0;
@@ -352,10 +373,10 @@ export default function DeckEditorPage() {
 
       {/* Deck Sections */}
       <div className="space-y-4">
-        <DeckSection title="Legend" count={legendCards.reduce((s, dc) => s + dc.quantity, 0)} target={1} cards={legendCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
-        <DeckSection title="Champion" count={championCards.reduce((s, dc) => s + dc.quantity, 0)} target={1} cards={championCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
-        <DeckSection title="Main Deck" count={mainDeckCards.reduce((s, dc) => s + dc.quantity, 0)} cards={mainDeckCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
-        <DeckSection title="Battlefields" count={battlefieldCards.reduce((s, dc) => s + dc.quantity, 0)} target={3} cards={battlefieldCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} />
+        <DeckSection title="Legend" count={legendCards.reduce((s, dc) => s + dc.quantity, 0)} target={1} cards={legendCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
+        <DeckSection title="Champion" count={championCards.reduce((s, dc) => s + dc.quantity, 0)} target={1} cards={championCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
+        <DeckSection title="Main Deck" count={mainDeckCards.reduce((s, dc) => s + dc.quantity, 0)} cards={mainDeckCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
+        <DeckSection title="Battlefields" count={battlefieldCards.reduce((s, dc) => s + dc.quantity, 0)} target={3} cards={battlefieldCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
 
         {/* Rune Pool */}
         <div>
@@ -697,6 +718,7 @@ function DeckSection({
   cards,
   updateCardQuantity,
   removeCard,
+  onCardDrop,
 }: {
   title: string;
   count: number;
@@ -704,10 +726,23 @@ function DeckSection({
   cards: DeckCard[];
   updateCardQuantity: (cardId: string, delta: number) => void;
   removeCard: (cardId: string) => void;
+  onCardDrop: (cardId: string, targetSection: string) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
+
   if (cards.length === 0 && !target) return null;
   return (
-    <div>
+    <div
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const cardId = e.dataTransfer.getData("text/card-id");
+        if (cardId) onCardDrop(cardId, title);
+      }}
+      className={`rounded-xl p-3 transition-colors ${dragOver ? "bg-primary/10 ring-2 ring-primary/30" : ""}`}
+    >
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">{title}</h3>
         <span className={`text-xs ${target && count === target ? "text-success" : "text-muted"}`}>
@@ -715,16 +750,22 @@ function DeckSection({
         </span>
       </div>
       {cards.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border py-3 text-center text-xs text-muted">
-          No {title.toLowerCase()} added
+        <div className={`rounded-lg border border-dashed py-3 text-center text-xs text-muted ${dragOver ? "border-primary/50" : "border-border"}`}>
+          {dragOver ? `Drop here to set as ${title.toLowerCase()}` : `No ${title.toLowerCase()} added`}
         </div>
       ) : (
         <div className="space-y-1.5">
           {cards.map((dc) => (
             <div
               key={dc.cardId}
-              className="flex items-center gap-3 rounded-lg border border-border bg-card-bg px-3 py-2.5 hover:border-primary/30 transition"
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/card-id", dc.cardId);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              className="flex items-center gap-2 rounded-lg border border-border bg-card-bg px-3 py-2.5 hover:border-primary/30 transition cursor-grab active:cursor-grabbing"
             >
+              <GripVertical size={14} className="text-muted/50 flex-shrink-0" />
               <div className="relative h-10 w-7 flex-shrink-0 rounded overflow-hidden bg-background">
                 {dc.card.thumbnailUrl || dc.card.artUrl ? (
                   <Image
