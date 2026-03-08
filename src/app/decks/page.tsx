@@ -36,6 +36,7 @@ export default function DecksPage() {
   const [importList, setImportList] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
+  const [importedDeckId, setImportedDeckId] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login?callbackUrl=/decks");
@@ -96,8 +97,10 @@ export default function DecksPage() {
       if (res.ok) {
         if (data.unmatched?.length > 0) {
           setImportError(`Imported ${data.matched} cards. Could not match: ${data.unmatched.join(", ")}`);
+          setImportedDeckId(data.deck.id);
+        } else {
+          router.push(`/decks/${data.deck.id}`);
         }
-        router.push(`/decks/${data.deck.id}`);
       } else {
         setImportError(data.error || "Import failed");
       }
@@ -201,7 +204,18 @@ export default function DecksPage() {
             <h2 className="text-lg font-bold">Import Deck</h2>
             <form onSubmit={importDeck} className="space-y-3">
               {importError && (
-                <div className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{importError}</div>
+                <div className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger space-y-2">
+                  <p>{importError}</p>
+                  {importedDeckId && (
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/decks/${importedDeckId}`)}
+                      className="w-full rounded-lg bg-primary py-2 text-xs font-semibold text-white hover:bg-primary-hover transition"
+                    >
+                      View Imported Deck
+                    </button>
+                  )}
+                </div>
               )}
               <input
                 type="text"
