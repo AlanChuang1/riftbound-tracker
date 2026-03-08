@@ -47,6 +47,7 @@ export default function ScannerPage() {
 
   const [scanning, setScanning] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [autoScan, setAutoScan] = useState(false);
   const [error, setError] = useState("");
 
   const [detectedEntries, setDetectedEntries] = useState<CardEntry[]>([]);
@@ -65,9 +66,9 @@ export default function ScannerPage() {
     scanningRef.current = scanning;
   }, [scanning]);
 
-  // Auto-scan loop — starts as soon as camera is active
+  // Auto-scan loop — only runs when autoScan is enabled and camera is active
   useEffect(() => {
-    if (!cameraActive) return;
+    if (!cameraActive || !autoScan) return;
     const interval = setInterval(() => {
       if (!scanningRef.current) {
         scanFrame();
@@ -76,7 +77,7 @@ export default function ScannerPage() {
     // Initial scan immediately
     if (!scanningRef.current) scanFrame();
     return () => clearInterval(interval);
-  }, [cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameraActive, autoScan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status === "unauthenticated") {
     router.push("/login?callbackUrl=/scanner");
@@ -218,6 +219,7 @@ export default function ScannerPage() {
 
       if (hasCards || hasSuggestions || hasSuggestedNames) {
         stopCamera();
+        setAutoScan(false);
         // Build entries with quantity (count duplicates from the scan)
         const entries: CardEntry[] = [];
         if (hasCards) {
@@ -354,7 +356,7 @@ export default function ScannerPage() {
                   <span className="text-[11px] text-white">Scanning...</span>
                 </div>
               )}
-              {!scanning && (
+              {!scanning && autoScan && (
                 <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1.5">
                   <ScanLine size={12} className="text-success" />
                   <span className="text-[11px] text-white">Auto-scanning</span>
@@ -363,8 +365,30 @@ export default function ScannerPage() {
             </div>
           </div>
 
+          <div className="flex gap-2">
+            <button
+              onClick={() => scanFrame()}
+              disabled={scanning}
+              className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50 transition"
+            >
+              {scanning ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
+              {scanning ? "Scanning..." : "Scan"}
+            </button>
+            <button
+              onClick={() => setAutoScan(!autoScan)}
+              className={`flex items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-medium transition ${
+                autoScan
+                  ? "bg-success/20 text-success border border-success/30"
+                  : "border border-border bg-card-bg text-muted hover:text-foreground hover:bg-foreground/5"
+              }`}
+            >
+              <Camera size={14} />
+              {autoScan ? "Auto: ON" : "Auto: OFF"}
+            </button>
+          </div>
+
           <button
-            onClick={stopCamera}
+            onClick={() => { stopCamera(); setAutoScan(false); }}
             className="w-full rounded-lg border border-border bg-card-bg py-3 text-sm font-medium hover:bg-foreground/5 transition"
           >
             Close Camera

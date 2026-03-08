@@ -5,11 +5,12 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Layers, Plus, Trash2, ChevronRight, Upload, Loader2 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
 interface DeckCard {
   id: string;
   quantity: number;
-  card: { id: string; name: string; type: string; cost?: number };
+  card: { id: string; name: string; type: string; cost?: number; artUrl?: string; thumbnailUrl?: string };
 }
 
 interface Deck {
@@ -114,6 +115,11 @@ export default function DecksPage() {
     return deck.cards.reduce((sum, c) => sum + c.quantity, 0);
   }
 
+  function getLegendImage(deck: Deck) {
+    const legend = deck.cards.find((dc) => dc.card.type === "Legend");
+    return legend?.card.thumbnailUrl || legend?.card.artUrl || null;
+  }
+
   if (status === "loading" || (status === "authenticated" && loading)) {
     return (
       <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">
@@ -130,7 +136,7 @@ export default function DecksPage() {
   if (status === "unauthenticated") return null;
 
   return (
-    <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">
+    <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto pb-20">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold md:text-2xl">My Decks</h1>
@@ -200,9 +206,11 @@ export default function DecksPage() {
       {/* Import Deck Modal */}
       {showImport && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowImport(false)}>
-          <div className="w-full max-w-md rounded-t-2xl md:rounded-2xl bg-card-bg border border-border p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold">Import Deck</h2>
-            <form onSubmit={importDeck} className="space-y-3">
+          <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-t-2xl md:rounded-2xl bg-card-bg border border-border" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 pb-0">
+              <h2 className="text-lg font-bold">Import Deck</h2>
+            </div>
+            <form onSubmit={importDeck} className="flex flex-col flex-1 min-h-0 p-5 pt-3 space-y-3">
               {importError && (
                 <div className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger space-y-2">
                   <p>{importError}</p>
@@ -223,7 +231,7 @@ export default function DecksPage() {
                 value={importName}
                 onChange={(e) => setImportName(e.target.value)}
                 required
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary transition"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary transition flex-shrink-0"
                 autoFocus
               />
               <textarea
@@ -231,10 +239,10 @@ export default function DecksPage() {
                 value={importList}
                 onChange={(e) => setImportList(e.target.value)}
                 required
-                rows={12}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-mono outline-none focus:border-primary transition resize-none"
+                rows={8}
+                className="w-full flex-1 min-h-[120px] rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-mono outline-none focus:border-primary transition resize-none"
               />
-              <div className="flex gap-3">
+              <div className="flex gap-3 flex-shrink-0 pb-safe">
                 <button
                   type="button"
                   onClick={() => { setShowImport(false); setImportError(""); }}
@@ -265,32 +273,50 @@ export default function DecksPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {decks.map((deck) => (
-            <div
-              key={deck.id}
-              className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-4 hover:border-primary/30 transition"
-            >
-              <Link href={`/decks/${deck.id}`} className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{deck.name}</p>
-                <p className="text-xs text-muted mt-0.5">
-                  {getTotalCards(deck)} cards
-                  {deck.champion && ` • ${deck.champion}`}
-                </p>
-                {deck.description && (
-                  <p className="text-xs text-muted mt-1 truncate">{deck.description}</p>
-                )}
-              </Link>
-              <button
-                onClick={() => deleteDeck(deck.id)}
-                className="p-2 rounded-lg text-danger hover:bg-danger/10 transition flex-shrink-0"
+          {decks.map((deck) => {
+            const legendImg = getLegendImage(deck);
+            return (
+              <div
+                key={deck.id}
+                className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-4 hover:border-primary/30 transition"
               >
-                <Trash2 size={16} />
-              </button>
-              <Link href={`/decks/${deck.id}`} className="p-2 text-muted hover:text-foreground flex-shrink-0">
-                <ChevronRight size={16} />
-              </Link>
-            </div>
-          ))}
+                <Link href={`/decks/${deck.id}`} className="relative h-14 w-10 flex-shrink-0 rounded-lg overflow-hidden bg-background">
+                  {legendImg ? (
+                    <Image
+                      src={legendImg}
+                      alt={deck.name}
+                      fill
+                      className="object-cover"
+                      sizes="40px"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-primary/10 flex items-center justify-center">
+                      <Layers size={16} className="text-muted" />
+                    </div>
+                  )}
+                </Link>
+                <Link href={`/decks/${deck.id}`} className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{deck.name}</p>
+                  <p className="text-xs text-muted mt-0.5">
+                    {getTotalCards(deck)} cards
+                    {deck.champion && ` • ${deck.champion}`}
+                  </p>
+                  {deck.description && (
+                    <p className="text-xs text-muted mt-1 truncate">{deck.description}</p>
+                  )}
+                </Link>
+                <button
+                  onClick={() => deleteDeck(deck.id)}
+                  className="p-2 rounded-lg text-danger hover:bg-danger/10 transition flex-shrink-0"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <Link href={`/decks/${deck.id}`} className="p-2 text-muted hover:text-foreground flex-shrink-0">
+                  <ChevronRight size={16} />
+                </Link>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

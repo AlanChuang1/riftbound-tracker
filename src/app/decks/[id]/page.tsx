@@ -48,11 +48,9 @@ interface Deck {
   name: string;
   description?: string;
   champion?: string;
-  runes?: Record<string, number>;
   cards: DeckCard[];
 }
 
-const RUNE_DOMAINS = ["Calm", "Chaos", "Order", "Mind", "Fury", "Body"];
 const DECK_SIZE = 56;
 
 export default function DeckEditorPage() {
@@ -178,7 +176,6 @@ export default function DeckEditorPage() {
           name: deck.name,
           description: deck.description,
           champion: deck.champion,
-          runes: deck.runes || null,
           cards: deck.cards.map((dc) => ({
             cardId: dc.cardId,
             quantity: dc.quantity,
@@ -211,13 +208,14 @@ export default function DeckEditorPage() {
   function getDeckExportText() {
     if (!deck) return "";
     const legend = deck.cards.filter((dc) => dc.card.type === "Legend");
+    const runes = deck.cards.filter((dc) => dc.card.type === "Rune");
     const chosenChampion = deck.champion
       ? deck.cards.filter((dc) => dc.card.supertype === "Champion" && dc.card.name === deck.champion)
       : [];
     const battlefields = deck.cards.filter((dc) => dc.card.type === "Battlefield");
     const chosenChampionNames = new Set(chosenChampion.map((dc) => dc.card.name));
     const mainDeck = deck.cards.filter(
-      (dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && !chosenChampionNames.has(dc.card.name)
+      (dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && dc.card.type !== "Rune" && !chosenChampionNames.has(dc.card.name)
     );
 
     const fmt = (cards: DeckCard[]) =>
@@ -228,12 +226,7 @@ export default function DeckEditorPage() {
     if (chosenChampion.length > 0) sections.push(`Champion:\n${fmt(chosenChampion)}`);
     if (mainDeck.length > 0) sections.push(`MainDeck:\n${fmt(mainDeck)}`);
     if (battlefields.length > 0) sections.push(`Battlefields:\n${fmt(battlefields)}`);
-    if (deck.runes && Object.keys(deck.runes).length > 0) {
-      const runeLines = Object.entries(deck.runes)
-        .filter(([, count]) => count > 0)
-        .map(([domain, count]) => `${count} ${domain} Rune`);
-      sections.push(`Rune Pool:\n${runeLines.join("\n")}`);
-    }
+    if (runes.length > 0) sections.push(`Rune Pool:\n${fmt(runes)}`);
 
     return sections.join("\n\n");
   }
@@ -256,9 +249,7 @@ export default function DeckEditorPage() {
     setLoadingMissing(false);
   }
 
-  const totalCardCount = deck?.cards.reduce((sum, dc) => sum + dc.quantity, 0) || 0;
-  const totalRunes = deck?.runes ? Object.values(deck.runes).reduce((s, n) => s + n, 0) : 0;
-  const totalCards = totalCardCount + totalRunes;
+  const totalCards = deck?.cards.reduce((sum, dc) => sum + dc.quantity, 0) || 0;
 
   if (status === "loading" || loading) {
     return (
@@ -277,16 +268,17 @@ export default function DeckEditorPage() {
 
   // Group cards by section — only the chosen champion goes in the Champion section
   const legendCards = deck.cards.filter((dc) => dc.card.type === "Legend");
+  const runeCards = deck.cards.filter((dc) => dc.card.type === "Rune");
   const championCards = deck.champion
     ? deck.cards.filter((dc) => dc.card.supertype === "Champion" && dc.card.name === deck.champion)
     : [];
   const battlefieldCards = deck.cards.filter((dc) => dc.card.type === "Battlefield");
   const chosenChampionName = deck.champion || "";
   const mainDeckCards = deck.cards
-    .filter((dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && !(dc.card.supertype === "Champion" && dc.card.name === chosenChampionName))
+    .filter((dc) => dc.card.type !== "Legend" && dc.card.type !== "Battlefield" && dc.card.type !== "Rune" && !(dc.card.supertype === "Champion" && dc.card.name === chosenChampionName))
     .sort((a, b) => (a.card.cost ?? a.card.energy ?? 99) - (b.card.cost ?? b.card.energy ?? 99));
 
-  const deckRunes = deck.runes || {};
+  const totalRunes = runeCards.reduce((s, dc) => s + dc.quantity, 0);
 
   function handleCardDrop(cardId: string, targetSection: string) {
     if (!deck) return;
@@ -308,21 +300,12 @@ export default function DeckEditorPage() {
     }
   }
 
-  function updateRune(domain: string, delta: number) {
-    if (!deck) return;
-    const current = deckRunes[domain] || 0;
-    const newVal = Math.max(0, current + delta);
-    const updated = { ...deckRunes, [domain]: newVal };
-    // Remove zero entries
-    Object.keys(updated).forEach((k) => { if (updated[k] === 0) delete updated[k]; });
-    setDeck({ ...deck, runes: Object.keys(updated).length > 0 ? updated : undefined });
-  }
 
   return (
-    <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">
+    <div className="px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto pb-20">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <Link href="/decks" className="p-2 rounded-lg hover:bg-foreground/5 transition">
+      <div className="flex items-center gap-2 mb-2">
+        <Link href="/decks" className="p-2 rounded-lg hover:bg-foreground/5 transition flex-shrink-0">
           <ArrowLeft size={18} />
         </Link>
         <div className="flex-1 min-w-0">
@@ -332,33 +315,35 @@ export default function DeckEditorPage() {
           </p>
         </div>
         <button
+          onClick={saveDeck}
+          disabled={saving}
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50 transition flex-shrink-0"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          Save
+        </button>
+      </div>
+      <div className="flex items-center gap-2 mb-4">
+        <button
           onClick={fetchMissing}
           className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-muted font-medium hover:text-foreground hover:bg-foreground/5 transition"
         >
           <AlertCircle size={14} />
-          <span className="hidden sm:inline">Missing</span>
+          Missing
         </button>
         <button
           onClick={() => setShowExport(true)}
           className="flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-2 text-sm text-muted font-medium hover:text-foreground hover:bg-foreground/5 transition"
         >
           <Download size={14} />
-          <span className="hidden sm:inline">Export</span>
+          Export
         </button>
         <button
           onClick={() => setShowAdvisor(true)}
           className="flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary font-medium hover:bg-primary/20 transition"
         >
           <Sparkles size={14} />
-          <span className="hidden sm:inline">AI Advice</span>
-        </button>
-        <button
-          onClick={saveDeck}
-          disabled={saving}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50 transition"
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          Save
+          AI Advice
         </button>
       </div>
 
@@ -377,45 +362,7 @@ export default function DeckEditorPage() {
         <DeckSection title="Champion" count={championCards.reduce((s, dc) => s + dc.quantity, 0)} target={1} cards={championCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
         <DeckSection title="Main Deck" count={mainDeckCards.reduce((s, dc) => s + dc.quantity, 0)} cards={mainDeckCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
         <DeckSection title="Battlefields" count={battlefieldCards.reduce((s, dc) => s + dc.quantity, 0)} target={3} cards={battlefieldCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
-
-        {/* Rune Pool */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Rune Pool</h3>
-            <span className={`text-xs ${totalRunes === 12 ? "text-success" : "text-muted"}`}>{totalRunes}/12</span>
-          </div>
-          <div className="space-y-1.5">
-            {RUNE_DOMAINS.map((domain) => {
-              const count = deckRunes[domain] || 0;
-              if (count === 0) return null;
-              return (
-                <div key={domain} className="flex items-center gap-3 rounded-lg border border-border bg-card-bg px-3 py-2.5">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">{domain} Rune</p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button onClick={() => updateRune(domain, -1)} className="p-1 rounded border border-border hover:bg-foreground/5 transition"><Minus size={12} /></button>
-                    <span className="text-sm font-semibold w-5 text-center">{count}</span>
-                    <button onClick={() => updateRune(domain, 1)} className="p-1 rounded border border-border hover:bg-foreground/5 transition"><Plus size={12} /></button>
-                  </div>
-                </div>
-              );
-            })}
-            {/* Add rune buttons for domains not yet in the pool */}
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {RUNE_DOMAINS.filter((d) => !deckRunes[d]).map((domain) => (
-                <button
-                  key={domain}
-                  onClick={() => updateRune(domain, 1)}
-                  className="flex items-center gap-1 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs text-muted hover:border-primary/50 hover:text-primary transition"
-                >
-                  <Plus size={10} />
-                  {domain}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <DeckSection title="Rune Pool" count={totalRunes} target={12} cards={runeCards} updateCardQuantity={updateCardQuantity} removeCard={removeCard} onCardDrop={handleCardDrop} />
 
         {totalCards === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
