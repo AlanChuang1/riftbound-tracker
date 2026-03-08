@@ -12,6 +12,7 @@ import {
   ScanLine,
   Search,
   Plus,
+  Minus,
   Trash2,
 } from "lucide-react";
 import Image from "next/image";
@@ -26,8 +27,13 @@ interface IdentifiedCard {
   thumbnailUrl?: string;
 }
 
+interface CardEntry {
+  card: IdentifiedCard;
+  quantity: number;
+}
+
 interface PendingConfirmation {
-  cards: IdentifiedCard[];
+  entries: CardEntry[];
   suggestions?: IdentifiedCard[];
   suggestedNames?: string[];
 }
@@ -41,10 +47,9 @@ export default function ScannerPage() {
 
   const [scanning, setScanning] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [scanPaused, setScanPaused] = useState(false);
   const [error, setError] = useState("");
 
-  const [detectedCards, setDetectedCards] = useState<IdentifiedCard[]>([]);
+  const [detectedEntries, setDetectedEntries] = useState<CardEntry[]>([]);
   const [addedCardIds, setAddedCardIds] = useState<Set<string>>(new Set());
 
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirmation | null>(null);
@@ -54,29 +59,24 @@ export default function ScannerPage() {
   const [manualResults, setManualResults] = useState<IdentifiedCard[]>([]);
   const [searchingManual, setSearchingManual] = useState(false);
 
-  const seenCardIdsRef = useRef<Set<string>>(new Set());
   const scanningRef = useRef(false);
-  const scanPausedRef = useRef(false);
 
   useEffect(() => {
     scanningRef.current = scanning;
   }, [scanning]);
-  useEffect(() => {
-    scanPausedRef.current = scanPaused;
-  }, [scanPaused]);
 
   // Auto-scan loop — starts as soon as camera is active
   useEffect(() => {
-    if (!cameraActive || scanPaused) return;
+    if (!cameraActive) return;
     const interval = setInterval(() => {
-      if (!scanPausedRef.current && !scanningRef.current) {
+      if (!scanningRef.current) {
         scanFrame();
       }
     }, 3000);
     // Initial scan immediately
     if (!scanningRef.current) scanFrame();
     return () => clearInterval(interval);
-  }, [cameraActive, scanPaused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameraActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status === "unauthenticated") {
     router.push("/login?callbackUrl=/scanner");
@@ -97,7 +97,6 @@ export default function ScannerPage() {
         videoRef.current.play().catch(() => {});
       }
       setCameraActive(true);
-      setScanPaused(false);
       setError("");
     } catch {
       setError("Could not access camera. Please use file upload instead.");
@@ -111,7 +110,6 @@ export default function ScannerPage() {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
-    setScanPaused(false);
   }
 
   function captureFrame(): File | null {
@@ -133,41 +131,57 @@ export default function ScannerPage() {
     return new File([u8arr], "capture.jpg", { type: mime });
   }
 
-  async function confirmAndAddCards(cards: IdentifiedCard[]) {
-    for (const card of cards) {
-      if (seenCardIdsRef.current.has(card.id)) continue;
-      seenCardIdsRef.current.add(card.id);
+  async function confirmAndAddEntries(entries: CardEntry[]) {
+    for (const entry of entries) {
       try {
         await fetch("/api/collection", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cardId: card.id, quantity: 1 }),
+          body: JSON.stringify({ cardId: entry.card.id, quantity: entry.quantity }),
         });
-        setAddedCardIds((prev) => new Set(prev).add(card.id));
+        setAddedCardIds((prev) => new Set(prev).add(entry.card.id));
       } catch {
         // silently fail
       }
     }
-    setDetectedCards((prev) => [
-      ...cards.filter((c) => !prev.some((p) => p.id === c.id)),
-      ...prev,
-    ]);
+    setDetectedEntries((prev) => {
+      const updated = [...prev];
+      for (const entry of entries) {
+        const existing = updated.find((e) => e.card.id === entry.card.id);
+        if (existing) {
+          existing.quantity += entry.quantity;
+        } else {
+          updated.unshift(entry);
+        }
+      }
+      return updated;
+    });
     setPendingConfirm(null);
-    setScanPaused(false);
   }
 
   function removeFromPending(cardId: string) {
     if (!pendingConfirm) return;
     const updated = {
       ...pendingConfirm,
-      cards: pendingConfirm.cards.filter((c) => c.id !== cardId),
+      entries: pendingConfirm.entries.filter((e) => e.card.id !== cardId),
     };
-    if (updated.cards.length === 0 && !updated.suggestions?.length) {
+    if (updated.entries.length === 0 && !updated.suggestions?.length) {
       setPendingConfirm(null);
-      setScanPaused(false);
-    } else {
+      } else {
       setPendingConfirm(updated);
     }
+  }
+
+  function updatePendingQuantity(cardId: string, delta: number) {
+    if (!pendingConfirm) return;
+    setPendingConfirm({
+      ...pendingConfirm,
+      entries: pendingConfirm.entries
+        .map((e) =>
+          e.card.id === cardId ? { ...e, quantity: e.quantity + delta } : e
+        )
+        .filter((e) => e.quantity > 0),
+    });
   }
 
   function removeFromSuggestions(cardId: string) {
@@ -176,9 +190,8 @@ export default function ScannerPage() {
       ...pendingConfirm,
       suggestions: pendingConfirm.suggestions?.filter((c) => c.id !== cardId),
     };
-    if (updated.cards.length === 0 && (!updated.suggestions || updated.suggestions.length === 0)) {
+    if (updated.entries.length === 0 && (!updated.suggestions || updated.suggestions.length === 0)) {
       setPendingConfirm(null);
-      setScanPaused(false);
     } else {
       setPendingConfirm(updated);
     }
@@ -204,12 +217,21 @@ export default function ScannerPage() {
       const hasSuggestedNames = data.suggestedNames?.length > 0;
 
       if (hasCards || hasSuggestions || hasSuggestedNames) {
-        setScanPaused(true);
-        const newCards = hasCards
-          ? data.cards.filter((c: IdentifiedCard) => !seenCardIdsRef.current.has(c.id))
-          : [];
+        stopCamera();
+        // Build entries with quantity (count duplicates from the scan)
+        const entries: CardEntry[] = [];
+        if (hasCards) {
+          for (const card of data.cards as IdentifiedCard[]) {
+            const existing = entries.find((e) => e.card.id === card.id);
+            if (existing) {
+              existing.quantity++;
+            } else {
+              entries.push({ card, quantity: 1 });
+            }
+          }
+        }
         setPendingConfirm({
-          cards: newCards,
+          entries,
           suggestions: hasSuggestions ? data.suggestions : undefined,
           suggestedNames: hasSuggestedNames ? data.suggestedNames : undefined,
         });
@@ -244,19 +266,17 @@ export default function ScannerPage() {
   }
 
   async function addManualCard(card: IdentifiedCard) {
-    await confirmAndAddCards([card]);
-    setShowManualSearch(false);
+    await confirmAndAddEntries([{ card, quantity: 1 }]);
+    // Don't close manual search — user may want to add more cards
     setManualQuery("");
     setManualResults([]);
   }
 
   function clearSession() {
-    setDetectedCards([]);
+    setDetectedEntries([]);
     setAddedCardIds(new Set());
-    seenCardIdsRef.current = new Set();
     setError("");
     setPendingConfirm(null);
-    setScanPaused(false);
   }
 
   return (
@@ -334,15 +354,10 @@ export default function ScannerPage() {
                   <span className="text-[11px] text-white">Scanning...</span>
                 </div>
               )}
-              {!scanning && !scanPaused && (
+              {!scanning && (
                 <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1.5">
                   <ScanLine size={12} className="text-success" />
                   <span className="text-[11px] text-white">Auto-scanning</span>
-                </div>
-              )}
-              {scanPaused && (
-                <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-3 py-1.5">
-                  <span className="text-[11px] text-white">Paused</span>
                 </div>
               )}
             </div>
@@ -361,22 +376,38 @@ export default function ScannerPage() {
       {pendingConfirm && (
         <div className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
           {/* Exact matches */}
-          {pendingConfirm.cards.length > 0 && (
+          {pendingConfirm.entries.length > 0 && (
             <>
               <p className="text-sm font-semibold">
-                Found {pendingConfirm.cards.length} card{pendingConfirm.cards.length > 1 ? "s" : ""}
+                Found {pendingConfirm.entries.reduce((sum, e) => sum + e.quantity, 0)} card{pendingConfirm.entries.reduce((sum, e) => sum + e.quantity, 0) > 1 ? "s" : ""}
               </p>
               <div className="space-y-1.5">
-                {pendingConfirm.cards.map((card) => (
+                {pendingConfirm.entries.map((entry) => (
                   <div
-                    key={card.id}
-                    className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-3"
+                    key={entry.card.id}
+                    className="flex items-center gap-2 rounded-lg border border-border bg-card-bg p-3"
                   >
+                    {/* Quantity counter */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => updatePendingQuantity(entry.card.id, -1)}
+                        className="p-1 rounded text-muted hover:text-foreground hover:bg-foreground/10 transition"
+                      >
+                        <Minus size={12} />
+                      </button>
+                      <span className="text-sm font-semibold w-5 text-center">{entry.quantity}</span>
+                      <button
+                        onClick={() => updatePendingQuantity(entry.card.id, 1)}
+                        className="p-1 rounded text-muted hover:text-foreground hover:bg-foreground/10 transition"
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
                     <div className="relative h-12 w-9 flex-shrink-0 rounded overflow-hidden bg-background">
-                      {card.thumbnailUrl || card.artUrl ? (
+                      {entry.card.thumbnailUrl || entry.card.artUrl ? (
                         <Image
-                          src={card.thumbnailUrl || card.artUrl!}
-                          alt={card.name}
+                          src={entry.card.thumbnailUrl || entry.card.artUrl!}
+                          alt={entry.card.name}
                           fill
                           className="object-cover"
                           sizes="36px"
@@ -386,13 +417,13 @@ export default function ScannerPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{card.name}</p>
+                      <p className="text-sm font-medium truncate">{entry.card.name}</p>
                       <p className="text-[11px] text-muted">
-                        {card.type} &middot; {card.rarity}
+                        {entry.card.type} &middot; {entry.card.rarity}
                       </p>
                     </div>
                     <button
-                      onClick={() => removeFromPending(card.id)}
+                      onClick={() => removeFromPending(entry.card.id)}
                       className="p-1.5 rounded-lg text-muted hover:text-danger hover:bg-danger/10 transition flex-shrink-0"
                     >
                       <Trash2 size={14} />
@@ -402,7 +433,7 @@ export default function ScannerPage() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => confirmAndAddCards(pendingConfirm.cards)}
+                  onClick={() => confirmAndAddEntries(pendingConfirm.entries)}
                   className="flex-1 flex items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition"
                 >
                   <Check size={14} />
@@ -410,7 +441,6 @@ export default function ScannerPage() {
                 </button>
                 <button
                   onClick={() => {
-                    setPendingConfirm(null);
                     setShowManualSearch(true);
                   }}
                   className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-border bg-card-bg py-2.5 text-sm font-medium hover:bg-foreground/5 transition"
@@ -426,7 +456,7 @@ export default function ScannerPage() {
           {pendingConfirm.suggestions && pendingConfirm.suggestions.length > 0 && (
             <>
               <p className="text-sm font-semibold">
-                {pendingConfirm.cards.length > 0 ? "Also found possible matches" : "Best guesses"}
+                {pendingConfirm.entries.length > 0 ? "Also found possible matches" : "Best guesses"}
                 {pendingConfirm.suggestedNames ? ` for "${pendingConfirm.suggestedNames.join(", ")}"` : ""}
               </p>
               <div className="space-y-1.5 max-h-60 overflow-y-auto">
@@ -455,7 +485,7 @@ export default function ScannerPage() {
                       </p>
                     </div>
                     <button
-                      onClick={() => confirmAndAddCards([card])}
+                      onClick={() => confirmAndAddEntries([{ card, quantity: 1 }])}
                       className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover transition flex-shrink-0"
                     >
                       <Plus size={12} />
@@ -470,7 +500,7 @@ export default function ScannerPage() {
                   </div>
                 ))}
               </div>
-              {pendingConfirm.cards.length === 0 && (
+              {pendingConfirm.entries.length === 0 && (
                 <button
                   onClick={() => {
                     setPendingConfirm(null);
@@ -489,7 +519,7 @@ export default function ScannerPage() {
           )}
 
           {/* No matches and no suggestions */}
-          {pendingConfirm.cards.length === 0 && (!pendingConfirm.suggestions || pendingConfirm.suggestions.length === 0) && (
+          {pendingConfirm.entries.length === 0 && (!pendingConfirm.suggestions || pendingConfirm.suggestions.length === 0) && (
             <>
               <p className="text-sm font-semibold">Could not identify card</p>
               {pendingConfirm.suggestedNames && (
@@ -514,7 +544,6 @@ export default function ScannerPage() {
                 <button
                   onClick={() => {
                     setPendingConfirm(null);
-                    setScanPaused(false);
                   }}
                   className="rounded-lg border border-border bg-card-bg px-3 py-2.5 text-sm text-muted hover:text-foreground hover:bg-foreground/5 transition"
                 >
@@ -536,7 +565,6 @@ export default function ScannerPage() {
                 setShowManualSearch(false);
                 setManualQuery("");
                 setManualResults([]);
-                setScanPaused(false);
               }}
               className="p-1 text-muted hover:text-foreground"
             >
@@ -597,11 +625,11 @@ export default function ScannerPage() {
       )}
 
       {/* Added Cards */}
-      {detectedCards.length > 0 && (
+      {detectedEntries.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">
-              Added ({detectedCards.length})
+              Added ({detectedEntries.reduce((sum, e) => sum + e.quantity, 0)})
             </h2>
             <button
               onClick={clearSession}
@@ -611,16 +639,19 @@ export default function ScannerPage() {
             </button>
           </div>
           <div className="space-y-1.5">
-            {detectedCards.map((card) => (
+            {detectedEntries.map((entry) => (
               <div
-                key={card.id}
+                key={entry.card.id}
                 className="flex items-center gap-3 rounded-lg border border-border bg-card-bg p-3"
               >
+                <span className="text-sm font-semibold text-primary w-6 text-center flex-shrink-0">
+                  {entry.quantity}x
+                </span>
                 <div className="relative h-12 w-9 flex-shrink-0 rounded overflow-hidden bg-background">
-                  {card.thumbnailUrl || card.artUrl ? (
+                  {entry.card.thumbnailUrl || entry.card.artUrl ? (
                     <Image
-                      src={card.thumbnailUrl || card.artUrl!}
-                      alt={card.name}
+                      src={entry.card.thumbnailUrl || entry.card.artUrl!}
+                      alt={entry.card.name}
                       fill
                       className="object-cover"
                       sizes="36px"
@@ -630,12 +661,12 @@ export default function ScannerPage() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{card.name}</p>
+                  <p className="text-sm font-medium truncate">{entry.card.name}</p>
                   <p className="text-[11px] text-muted">
-                    {card.type} &middot; {card.rarity}
+                    {entry.card.type} &middot; {entry.card.rarity}
                   </p>
                 </div>
-                {addedCardIds.has(card.id) && (
+                {addedCardIds.has(entry.card.id) && (
                   <div className="flex items-center gap-1 text-success text-xs">
                     <Check size={12} />
                     Added

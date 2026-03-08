@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 Here is the list of all known cards:
 ${cardListStr}
 
-Respond with a JSON array of the exact card names as they appear in the list above. For example: ["Card Name 1", "Card Name 2"]
+Respond with a JSON array of the exact card names as they appear in the list above. If there are multiple copies of the same card, include the name multiple times. For example: ["Card Name 1", "Card Name 1", "Card Name 2"]
 If you cannot identify any cards, respond with: []
 Only include cards you are confident about.`,
     },
@@ -105,12 +105,16 @@ Only include cards you are confident about.`,
     });
   }
 
-  const fullCards = matchedCards.length > 0
-    ? await prisma.card.findMany({ where: { id: { in: matchedCards } } })
+  // Fetch unique card data, then expand back to include duplicates
+  const uniqueIds = [...new Set(matchedCards)];
+  const uniqueCards = uniqueIds.length > 0
+    ? await prisma.card.findMany({ where: { id: { in: uniqueIds } } })
     : [];
+  const cardMap = new Map(uniqueCards.map((c) => [c.id, c]));
+  const fullCards = matchedCards.map((id) => cardMap.get(id)).filter(Boolean);
 
   return NextResponse.json({
-    identified: matchedCards.length > 0,
+    identified: fullCards.length > 0,
     cards: fullCards,
     suggestions: suggestions.length > 0 ? suggestions : undefined,
     suggestedNames: unmatchedNames.length > 0 ? unmatchedNames : undefined,
